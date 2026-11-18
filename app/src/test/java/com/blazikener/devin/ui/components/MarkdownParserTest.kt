@@ -64,6 +64,17 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun plainStripsMarkdownForNotifications() {
+        assertEquals(
+            "I've received your request: Please continue\n" +
+                "Use ApiException\n" +
+                "• Retry the docs\n" +
+                "val x = 1",
+            MarkdownParser.plain("I've received your request: **Please continue**\n\nUse `ApiException`\n- Retry [the docs](https://x.y)\n```kotlin\nval x = 1\n```"),
+        )
+    }
+
+    @Test
     fun parsesTables() {
         assertEquals(
             listOf(
@@ -91,5 +102,10 @@ class MarkdownParserTest {
     @Test
     fun joinsConsecutiveQuoteLines() {
         assertEquals(listOf(MdBlock.Quote("one\ntwo")), MarkdownParser.parse("> one\n> two"))
+    }
+
+    @Test
+    fun plainFlattensTables() {
+        assertEquals("A · B\n1 · x", MarkdownParser.plain("| A | B |\n|---|---|\n| 1 | `x` |"))
     }
 }

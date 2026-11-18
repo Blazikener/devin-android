@@ -43,7 +43,7 @@ data class SessionsUi(
     val workingCount: Int get() = all.count { it.state.isActive }
 }
 
-class SessionsViewModel(private val g: AppGraph) : ViewModel() {
+class SessionsViewModel(private val g: AppGraph, private val onActed: (Session) -> Unit = {}) : ViewModel() {
     private val _ui = MutableStateFlow(SessionsUi(mineOnly = g.auth.account.value?.userId != null))
     val ui: StateFlow<SessionsUi> = _ui
     private var cursor: String? = null
@@ -129,6 +129,7 @@ class SessionsViewModel(private val g: AppGraph) : ViewModel() {
                     SessionAction.Terminate -> g.api.terminate(id)
                 }
             }.onSuccess { updated ->
+                onActed(updated)
                 _ui.update { u ->
                     if (action == SessionAction.Archive) u.copy(all = u.all.filterNot { it.id == id }, archived = listOf(updated) + u.archived)
                     else if (action == SessionAction.Unarchive) u.copy(archived = u.archived.filterNot { it.id == id }, all = listOf(updated) + u.all)

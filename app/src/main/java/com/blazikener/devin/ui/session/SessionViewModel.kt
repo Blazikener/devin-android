@@ -11,6 +11,7 @@ import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionAttachment
 import com.blazikener.devin.data.SessionMessage
 import com.blazikener.devin.notify.Notifications
+import com.blazikener.devin.notify.SessionWatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -174,7 +175,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     }
 
     fun act(block: suspend () -> Session, onDone: (String?) -> Unit) = viewModelScope.launch {
-        runCatching { block() }.onSuccess { s -> _ui.update { it.copy(session = s) }; onDone(null) }.onFailure { onDone(it.message) }
+        runCatching { block() }.onSuccess { s -> SessionWatcher.markSeen(ctx, s); _ui.update { it.copy(session = s) }; onDone(null) }.onFailure { onDone(it.message) }
     }
 
     suspend fun download(a: SessionAttachment): ByteArray = g.api.download(a.url)

@@ -133,6 +133,20 @@ object MarkdownParser {
         return out
     }
 
+    /** Flattens Markdown to readable plain text for places that can't render it, like notifications. */
+    fun plain(src: String): String = parse(src).joinToString("\n") { b ->
+        fun t(x: String) = inline(x, Color.Unspecified, Color.Unspecified).text
+        when (b) {
+            is MdBlock.Heading -> t(b.text)
+            is MdBlock.Paragraph -> t(b.text)
+            is MdBlock.Code -> b.code
+            is MdBlock.Bullet -> "  ".repeat(b.indent) + b.marker + " " + t(b.text)
+            is MdBlock.Quote -> t(b.text)
+            is MdBlock.Table -> (listOf(b.header) + b.rows).joinToString("\n") { r -> r.joinToString(" · ") { t(it) } }
+            MdBlock.Rule -> ""
+        }
+    }.trim()
+
     private val inline = Regex(
         """(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\[[^\]]+]\([^)\s]+\))|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
     )
