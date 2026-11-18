@@ -3,6 +3,7 @@ package com.blazikener.devin.ui.sessions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blazikener.devin.AppGraph
+import com.blazikener.devin.data.Page
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.data.SessionState
@@ -11,32 +12,50 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-data class SessionsUi(
-    val all: List<Session> = emptyList(),
-    val archived: List<Session> = emptyList(),
+internal data class SessionFeedKey(val mine: Boolean, val archived: Boolean) {
+    val cacheKey: String get() = (if (mine) "mine" else "org") + if (archived) "_archived" else ""
+}
+
+internal data class SessionFeed(
+    val items: List<Session> = emptyList(),
+    val initialized: Boolean = false,
+    val cursor: String? = null,
+    val refreshing: Boolean = false,
+    val manualRefresh: Boolean = false,
+    val loadingMore: Boolean = false,
+    val error: String? = null,
+    val pageError: String? = null,
+) {
+    val loading: Boolean get() = !initialized
+    val offline: Boolean get() = initialized && error != null
+    val hasMore: Boolean get() = cursor != null
+}
+
+internal data class SessionsUi(
+    val feeds: Map<SessionFeedKey, SessionFeed> = emptyMap(),
     val filter: SessionFilter = SessionFilter.All,
     val query: String = "",
     val mineOnly: Boolean = true,
-    val loading: Boolean = true,
-    val refreshing: Boolean = false,
-    val loadingMore: Boolean = false,
-    val hasMore: Boolean = false,
-    val error: String? = null,
-    val offline: Boolean = false,
     val pinned: Set<String> = emptySet(),
 ) {
+    val key: SessionFeedKey get() = SessionFeedKey(mineOnly, filter == SessionFilter.Archived)
+    val feed: SessionFeed get() = feed(key)
+    val all: List<Session> get() = feed(SessionFeedKey(mineOnly, false)).items
+    fun feed(key: SessionFeedKey): SessionFeed = feeds[key] ?: SessionFeed()
+
     val visible: List<Session>
         get() {
-            val src = if (filter == SessionFilter.Archived) archived else all
             val q = query.trim().lowercase()
-            return src.filter { s ->
+            return feed.items.filter { s ->
                 when (filter) {
                     SessionFilter.NeedsYou -> s.state.needsAttention
                     SessionFilter.Working -> s.state.isActive
                     SessionFilter.Finished -> s.state == SessionState.Finished || s.state == SessionState.Sleeping
                     else -> true
-                } && (q.isEmpty() || s.displayTitle.lowercase().contains(q) || s.id.contains(q) ||
+                } && (q.isEmpty() || s.displayTitle.lowercase().contains(q) || s.id.contains(q, ignoreCase = true) ||
                     s.tags.any { it.lowercase().contains(q) } || s.pullRequests.any { it.url.lowercase().contains(q) })
             }.sortedWith(compareByDescending<Session> { it.id in pinned }.thenByDescending { it.updatedAt })
         }
@@ -44,104 +63,167 @@ data class SessionsUi(
     val workingCount: Int get() = all.count { it.state.isActive }
 }
 
-class SessionsViewModel(private val g: AppGraph, private val onActed: (Session) -> Unit = {}) : ViewModel() {
-    private val _ui = MutableStateFlow(SessionsUi(mineOnly = g.auth.account.value?.userId != null))
+internal class SessionsViewModel(
+    private val userId: String?,
+    private val fetch: suspend (first: Int, after: String?, archived: Boolean, userIds: List<String>?) -> Page<Session>,
+    private val readCache: suspend (String) -> List<Session>?,
+    private val writeCache: suspend (String, List<Session>) -> Unit,
+    pinned: StateFlow<Set<String>>,
+    private val changePin: (String) -> Unit,
+    private val perform: suspend (String, SessionAction) -> Session,
+) : ViewModel() {
+    constructor(g: AppGraph, onActed: (Session) -> Unit) : this(
+        userId = g.auth.account.value?.userId,
+        fetch = { first, after, archived, users -> g.api.listSessions(first, after, archived, users) },
+        readCache = g.cache::sessions,
+        writeCache = { key, sessions -> g.cache.putSessions(key, sessions) },
+        pinned = g.settings.pinned,
+        changePin = g.settings::togglePin,
+        perform = { id, action ->
+            when (action) {
+                SessionAction.Archive -> g.api.archive(id)
+                SessionAction.Unarchive -> g.api.unarchive(id)
+                SessionAction.Sleep -> g.api.sleep(id)
+                SessionAction.Terminate -> g.api.terminate(id)
+            }.also(onActed)
+        },
+    )
+
+    private val _ui = MutableStateFlow(SessionsUi(mineOnly = userId != null))
     val ui: StateFlow<SessionsUi> = _ui
-    private var cursor: String? = null
-    private var archivedCursor: String? = null
+    private val cacheWrites = Mutex()
 
     init {
-        viewModelScope.launch { g.settings.pinned.collect { p -> _ui.update { it.copy(pinned = p) } } }
-        viewModelScope.launch {
-            g.cache.sessions(cacheKey())?.let { c -> _ui.update { it.copy(all = c, loading = false) } }
-            refresh()
-        }
+        viewModelScope.launch { pinned.collect { p -> _ui.update { it.copy(pinned = p) } } }
+        openFeed(_ui.value.key)
     }
 
-    private fun cacheKey() = if (_ui.value.mineOnly) "mine" else "org"
-    private fun userFilter() = if (_ui.value.mineOnly) g.auth.account.value?.userId?.let { listOf(it) } else null
+    private fun updateFeed(key: SessionFeedKey, change: (SessionFeed) -> SessionFeed) {
+        _ui.update { it.copy(feeds = it.feeds + (key to change(it.feed(key)))) }
+    }
+
+    private fun openFeed(key: SessionFeedKey) {
+        if (!_ui.value.feed(key).initialized) viewModelScope.launch { refresh(key) }
+    }
+
+    private suspend fun page(key: SessionFeedKey, first: Int, cursor: String?) =
+        fetch(first, cursor, key.archived, if (key.mine) userId?.let(::listOf) else null)
+
+    private suspend fun persist(key: SessionFeedKey) = cacheWrites.withLock {
+        writeCache(key.cacheKey, _ui.value.feed(key).items)
+    }
 
     fun setFilter(f: SessionFilter) {
         _ui.update { it.copy(filter = f) }
-        if (f == SessionFilter.Archived && _ui.value.archived.isEmpty()) viewModelScope.launch { refresh() }
+        openFeed(_ui.value.key)
     }
 
     fun setQuery(q: String) = _ui.update { it.copy(query = q) }
 
     fun toggleMine() {
-        _ui.update { it.copy(mineOnly = !it.mineOnly, all = emptyList(), archived = emptyList(), loading = true) }
-        viewModelScope.launch { refresh() }
+        if (userId == null) return
+        _ui.update { it.copy(mineOnly = !it.mineOnly) }
+        openFeed(_ui.value.key)
     }
 
     fun pullRefresh() {
-        _ui.update { it.copy(refreshing = true) }
-        viewModelScope.launch { refresh(); _ui.update { it.copy(refreshing = false) } }
+        val key = _ui.value.key
+        viewModelScope.launch { refresh(key, manual = true) }
     }
 
-    suspend fun refresh() {
-        val current = _ui.value
-        val archived = current.filter == SessionFilter.Archived
-        val first = if (archived) {
-            maxOf(50, current.archived.size).coerceAtMost(200)
-        } else {
-            maxOf(50, current.all.size).coerceAtMost(200)
-        }
-        runCatching { g.api.listSessions(first = first, archived = archived, userIds = userFilter()) }
-            .onSuccess { page ->
-                if (archived) {
-                    archivedCursor = page.endCursor
-                    _ui.update { it.copy(archived = page.items, hasMore = page.hasNextPage, loading = false, error = null, offline = false) }
-                } else {
-                    cursor = page.endCursor
-                    _ui.update { it.copy(all = page.items, hasMore = page.hasNextPage, loading = false, error = null, offline = false) }
-                    g.cache.putSessions(cacheKey(), page.items)
+    suspend fun refresh() = refresh(_ui.value.key, background = true)
+
+    private suspend fun refresh(key: SessionFeedKey, background: Boolean = false, manual: Boolean = false) {
+        val current = _ui.value.feed(key)
+        if (current.refreshing || current.loadingMore) return
+        updateFeed(key) { it.copy(refreshing = true, manualRefresh = manual) }
+        try {
+            if (!current.initialized) {
+                readCache(key.cacheKey)?.let { cached ->
+                    val scoped = if (key.mine) cached.filter { it.userId == null || it.userId == userId } else cached
+                    updateFeed(key) { it.copy(items = scoped, initialized = true) }
                 }
             }
-            .onFailure { e ->
-                if (e is CancellationException) throw e
-                _ui.update { it.copy(loading = false, error = e.message, offline = it.all.isNotEmpty()) }
+            val items = mutableListOf<Session>()
+            val target = maxOf(PAGE_SIZE, _ui.value.feed(key).items.size)
+            var cursor: String? = null
+            do {
+                val next = page(key, (target - items.size).coerceIn(PAGE_SIZE, MAX_PAGE_SIZE), cursor)
+                items += next.items
+                cursor = next.nextCursor(cursor)
+            } while (cursor != null && items.size < target)
+            updateFeed(key) {
+                it.copy(items = items.distinctBy(Session::id), initialized = true, cursor = cursor, error = null,
+                    pageError = if (background) it.pageError?.takeIf { cursor != null } else null)
             }
+            persist(key)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            updateFeed(key) { it.copy(error = e.message ?: "Couldn't load sessions") }
+        } finally {
+            updateFeed(key) { it.copy(refreshing = false, manualRefresh = false) }
+        }
     }
 
-    fun loadMore() {
-        val s = _ui.value
-        if (s.loadingMore || !s.hasMore) return
-        val archived = s.filter == SessionFilter.Archived
-        _ui.update { it.copy(loadingMore = true) }
+    fun loadMore(retry: Boolean = false) {
+        val key = _ui.value.key
+        val current = _ui.value.feed
+        val cursor = current.cursor ?: return
+        if (current.refreshing || current.loadingMore || current.offline || (!retry && current.pageError != null)) return
+        updateFeed(key) { it.copy(loadingMore = true, pageError = null) }
         viewModelScope.launch {
-            runCatching { g.api.listSessions(first = 50, after = if (archived) archivedCursor else cursor, archived = archived, userIds = userFilter()) }
-                .onSuccess { page ->
-                    if (archived) archivedCursor = page.endCursor else cursor = page.endCursor
-                    _ui.update {
-                        if (archived) it.copy(archived = (it.archived + page.items).distinctBy { x -> x.id }, hasMore = page.hasNextPage, loadingMore = false)
-                        else it.copy(all = (it.all + page.items).distinctBy { x -> x.id }, hasMore = page.hasNextPage, loadingMore = false)
-                    }
+            try {
+                val next = page(key, PAGE_SIZE, cursor)
+                updateFeed(key) {
+                    it.copy(items = (it.items + next.items).distinctBy(Session::id), cursor = next.nextCursor(cursor))
                 }
-                .onFailure { e -> _ui.update { it.copy(loadingMore = false, hasMore = false, error = e.message) } }
+                persist(key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateFeed(key) { it.copy(pageError = e.message ?: "Couldn't load more sessions") }
+            } finally {
+                updateFeed(key) { it.copy(loadingMore = false) }
+            }
         }
     }
 
-    fun togglePin(id: String) = g.settings.togglePin(id)
+    fun togglePin(id: String) = changePin(id)
 
     fun act(id: String, action: SessionAction, onDone: (String) -> Unit) {
         viewModelScope.launch {
-            runCatching {
-                when (action) {
-                    SessionAction.Archive -> g.api.archive(id)
-                    SessionAction.Unarchive -> g.api.unarchive(id)
-                    SessionAction.Sleep -> g.api.sleep(id)
-                    SessionAction.Terminate -> g.api.terminate(id)
-                }
-            }.onSuccess { updated ->
-                onActed(updated)
+            try {
+                val updated = perform(id, action)
+                val archiveChanged = action == SessionAction.Archive || action == SessionAction.Unarchive
                 _ui.update { u ->
-                    if (action == SessionAction.Archive) u.copy(all = u.all.filterNot { it.id == id }, archived = listOf(updated) + u.archived)
-                    else if (action == SessionAction.Unarchive) u.copy(archived = u.archived.filterNot { it.id == id }, all = listOf(updated) + u.all)
-                    else u.copy(all = u.all.map { if (it.id == id) updated else it })
+                    u.copy(feeds = u.feeds.mapValues { (key, feed) ->
+                        val present = feed.items.any { it.id == id }
+                        val belongs = (present || !key.mine || updated.userId == userId) && key.archived == updated.isArchived
+                        when {
+                            archiveChanged && !belongs -> feed.copy(items = feed.items.filterNot { it.id == id })
+                            archiveChanged && feed.initialized -> feed.copy(items = listOf(updated) + feed.items.filterNot { it.id == id })
+                            present -> feed.copy(items = feed.items.map { if (it.id == id) updated else it })
+                            else -> feed
+                        }
+                    })
                 }
+                _ui.value.feeds.filterValues { it.initialized }.keys.forEach { persist(it) }
                 onDone(action.done)
-            }.onFailure { onDone(it.message ?: "Failed") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onDone(e.message ?: "Failed")
+            }
         }
+    }
+
+    private fun Page<Session>.nextCursor(previous: String?): String? =
+        endCursor?.takeIf { hasNextPage && items.isNotEmpty() && it != previous }
+
+    private companion object {
+        const val PAGE_SIZE = 50
+        const val MAX_PAGE_SIZE = 200
     }
 }
 

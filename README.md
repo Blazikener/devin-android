@@ -32,6 +32,8 @@ Install Android SDK and JDK 17, then run:
 
 ## Run against the mock API
 
+Install the debug APK from `./gradlew assembleDebug` on an Android emulator.
+The published release APK does not allow the mock's plain HTTP connection.
 From the repository root:
 
 ```sh
