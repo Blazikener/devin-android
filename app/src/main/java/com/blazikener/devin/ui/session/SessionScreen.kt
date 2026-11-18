@@ -175,11 +175,6 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
             )
         },
         snackbarHost = { SnackbarHost(snack) },
-        floatingActionButton = {
-            if (!atBottom && itemCount > 3) SmallFloatingActionButton(onClick = { scope.launch { list.animateScrollToItem(itemCount) } }) {
-                Icon(Icons.Outlined.KeyboardArrowDown, "Jump to latest")
-            }
-        },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
             if (ui.offline) Banner(Icons.Outlined.CloudOff, "Offline — showing saved messages. ${ui.error ?: ""}")
@@ -193,6 +188,12 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                     items(ui.messages, key = { it.eventId }) { m -> MessageBubble(m) }
                     items(ui.pending, key = { it.localId }) { p -> PendingBubble(p, onRetry = { vm.retry(p) }, onDiscard = { vm.discard(p) }) }
                     if (s?.state?.isActive == true) item { WorkingIndicator() }
+                }
+                if (!atBottom && itemCount > 3) SmallFloatingActionButton(
+                    onClick = { scope.launch { list.animateScrollToItem(itemCount) } },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Outlined.KeyboardArrowDown, "Jump to latest")
                 }
             }
             when (s?.state) {
