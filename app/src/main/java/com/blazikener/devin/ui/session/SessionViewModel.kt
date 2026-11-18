@@ -55,6 +55,10 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     val ui: StateFlow<ChatUi> = _ui
     private var cursor: String? = null
     private var poller: Job? = null
+    // First fetch per screen is a full reload so stale cached history is replaced, not merged.
+    private var synced = false
+    // Ids of failed messages are kept while a retry is in flight.
+    private val unsentIds = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -81,9 +85,6 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     }
 
     fun stopPolling() { poller?.cancel(); poller = null }
-
-    // First fetch per screen is a full reload so stale cached history is replaced, not merged.
-    private var synced = false
 
     suspend fun refresh() {
         val incremental = synced
@@ -176,9 +177,6 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
         unsentIds -= p.localId
         saveOutbox()
     }
-
-    // Ids of messages that failed at least once and have not been delivered since; kept while a retry is in flight.
-    private val unsentIds = mutableSetOf<String>()
 
     private fun saveOutbox() {
         val unsent = _ui.value.pending.filter { it.localId in unsentIds }.map { it.copy(failed = true) }
