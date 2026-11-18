@@ -158,15 +158,15 @@ object MarkdownParser {
             val t = m.value
             when {
                 t.startsWith("`") -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 13.sp)) { append(t.trim('`')) }
-                t.startsWith("**") || t.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(t.substring(2, t.length - 2)) }
-                t.startsWith("~~") -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(t.substring(2, t.length - 2)) }
+                t.startsWith("**") || t.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
+                t.startsWith("~~") -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("[") -> {
                     val label = t.substring(1, t.indexOf("]("))
                     val url = t.substring(t.indexOf("](") + 2, t.length - 1)
                     withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = link)))) { append(label) }
                 }
                 t.startsWith("http") -> withLink(LinkAnnotation.Url(t, TextLinkStyles(SpanStyle(color = link)))) { append(t) }
-                t.startsWith("*") -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(t.trim('*')) }
+                t.startsWith("*") -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(inline(t.substring(1, t.length - 1), codeBg, link)) }
                 else -> append(t)
             }
             last = m.range.last + 1
