@@ -198,13 +198,9 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                     if (s?.state?.isActive == true) item(key = "working") { WorkingIndicator() }
                     items(ui.pending.asReversed(), key = { it.localId }) { p -> PendingBubble(p, onRetry = { vm.retry(p) }, onDiscard = { vm.discard(p) }) }
                     items(ui.messages.asReversed(), key = { it.eventId }) { m -> MessageBubble(m) }
-                    if (ui.messages.isEmpty() && ui.pending.isEmpty()) item {
-                        val missing = s == null && ui.error != null
-                        Text(
-                            if (missing) "Couldn't open this session: ${ui.error}" else "No messages yet.",
-                            color = if (missing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(16.dp),
-                        )
+                    // A session that failed to load is explained by the banner above.
+                    if (ui.messages.isEmpty() && ui.pending.isEmpty() && (s != null || ui.error == null)) item {
+                        Text("No messages yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                     }
                 }
                 if (!atBottom && itemCount > 3) SmallFloatingActionButton(
