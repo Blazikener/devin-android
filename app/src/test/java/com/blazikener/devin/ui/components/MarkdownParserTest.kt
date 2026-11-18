@@ -108,4 +108,11 @@ class MarkdownParserTest {
     fun plainFlattensTables() {
         assertEquals("A · B\n1 · x", MarkdownParser.plain("| A | B |\n|---|---|\n| 1 | `x` |"))
     }
+
+    @Test
+    fun plainFlattensCodeInsideEmphasis() {
+        assertEquals("Use x now", MarkdownParser.plain("**Use `x` now**"))
+        assertEquals("Please use bold and code", MarkdownParser.plain("**Please use **bold** and `code`**"))
+        assertEquals("old y", MarkdownParser.plain("~~old `y`~~"))
+    }
 }
