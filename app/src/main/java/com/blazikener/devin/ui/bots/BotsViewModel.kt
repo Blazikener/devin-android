@@ -58,6 +58,7 @@ data class BotUi(
     val conversation: Session? = null,
     val pending: List<PendingBotMessage> = emptyList(),
     val sessions: List<Session> = emptyList(),
+    val sessionsError: String? = null,
     val loading: Boolean = true,
     val error: String? = null,
 )
@@ -85,10 +86,17 @@ class BotViewModel(private val g: AppGraph, val id: String) : ViewModel() {
     suspend fun refresh() {
         runCatching {
             val bot = g.api.bot(id)
-            val sessions = runCatching { g.api.botSessions(id).items }.getOrElse { e ->
-                if (e is CancellationException) throw e
-                _ui.value.sessions
-            }
+            val sessions = runCatching {
+                val all = mutableListOf<Session>()
+                var after: String? = null
+                var pages = 0
+                do {
+                    val page = g.api.botSessions(id, first = 100, after = after)
+                    all += page.items
+                    after = page.endCursor
+                } while (page.hasNextPage && after != null && ++pages < 10)
+                all.distinctBy { it.id }
+            }.onFailure { if (it is CancellationException) throw it }
             val convId = bot.conversationSessionId
             val conversation = convId?.let { runCatching { g.api.session(it) }.getOrNull() }
             val messages = convId?.let { cid ->
@@ -114,7 +122,9 @@ class BotViewModel(private val g: AppGraph, val id: String) : ViewModel() {
                 val pend = if (bot.conversationSessionId == null) u.pending
                 else u.pending.filter { p -> p.failed || !echoed.remove(p.text.trim()) }
                 u.copy(
-                    bot = bot, sessions = sessions.sortedByDescending { it.updatedAt },
+                    bot = bot,
+                    sessions = sessions.getOrNull()?.sortedByDescending { it.updatedAt } ?: u.sessions,
+                    sessionsError = sessions.exceptionOrNull()?.botsMessage(),
                     conversation = conversation ?: u.conversation, messages = msgs, pending = pend,
                     loading = false, error = null,
                 )

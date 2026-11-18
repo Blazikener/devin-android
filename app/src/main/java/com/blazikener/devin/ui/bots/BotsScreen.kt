@@ -178,7 +178,7 @@ fun BotScreen(id: String, onBack: () -> Unit, onOpenSession: (String) -> Unit) {
                 ui.loading && ui.bot == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                 ui.bot == null -> Message(ui.error ?: "Couldn't load this Bot.", "Retry") { scope.launch { vm.refresh() } }
                 tab == 0 -> BotChat(ui, vm)
-                else -> BotSessions(ui.sessions, onOpenSession)
+                else -> BotSessions(ui.sessions, ui.sessionsError, onOpenSession) { scope.launch { vm.refresh() } }
             } }
             if (tab == 0 && ui.bot != null) Composer(
                 value = draft, onChange = { draft = it }, enterToSend = settings.enterToSend,
@@ -220,8 +220,12 @@ private fun BotChat(ui: BotUi, vm: BotViewModel) {
 }
 
 @Composable
-private fun BotSessions(sessions: List<Session>, onOpen: (String) -> Unit) {
-    if (sessions.isEmpty()) { Message("This Bot hasn't started any sessions yet."); return }
+private fun BotSessions(sessions: List<Session>, error: String?, onOpen: (String) -> Unit, onRetry: () -> Unit) {
+    if (sessions.isEmpty()) {
+        if (error != null) Message("Couldn't load this Bot's sessions. $error", "Retry", onRetry)
+        else Message("This Bot hasn't started any sessions yet.")
+        return
+    }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
         items(sessions, key = { it.id }) { s ->
             Surface(
