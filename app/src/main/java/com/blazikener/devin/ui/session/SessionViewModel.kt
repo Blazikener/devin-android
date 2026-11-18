@@ -60,6 +60,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
         viewModelScope.launch {
             val s = g.cache.session(id); val m = g.cache.messages(id)
             val unsent = g.settings.outbox(id)?.let { runCatching { json.decodeFromString(ListSerializer(Pending.serializer()), it) }.getOrNull() }.orEmpty()
+            unsentIds += unsent.map { it.localId }
             if (s != null || m != null || unsent.isNotEmpty())
                 _ui.update { it.copy(session = s, messages = m.orEmpty(), pending = unsent, loading = s == null && m == null) }
             refresh()
@@ -172,12 +173,16 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
 
     fun discard(p: Pending) {
         _ui.update { u -> u.copy(pending = u.pending.filterNot { it.localId == p.localId }) }
+        unsentIds -= p.localId
         saveOutbox()
     }
 
+    // Ids of messages that failed at least once and have not been delivered since; kept while a retry is in flight.
+    private val unsentIds = mutableSetOf<String>()
+
     private fun saveOutbox() {
-        val failed = _ui.value.pending.filter { it.failed }
-        g.settings.saveOutbox(id, failed.takeIf { it.isNotEmpty() }?.let { json.encodeToString(ListSerializer(Pending.serializer()), it) })
+        val unsent = _ui.value.pending.filter { it.localId in unsentIds }.map { it.copy(failed = true) }
+        g.settings.saveOutbox(id, unsent.takeIf { it.isNotEmpty() }?.let { json.encodeToString(ListSerializer(Pending.serializer()), it) })
     }
 
     private fun deliver(p: Pending) = viewModelScope.launch {
@@ -192,10 +197,12 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             )
         }.onSuccess { s ->
             _ui.update { it.copy(session = s) }
+            unsentIds -= p.localId
             saveOutbox()
             refresh()
         }.onFailure { e ->
             _ui.update { u -> u.copy(pending = u.pending.map { if (it.localId == p.localId) it.copy(failed = true, error = e.userMessage()) else it }) }
+            unsentIds += p.localId
             saveOutbox()
         }
     }
