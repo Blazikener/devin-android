@@ -27,8 +27,6 @@ import com.blazikener.devin.ui.session.SessionScreen
 import com.blazikener.devin.ui.sessions.SessionsScreen
 import com.blazikener.devin.ui.settings.SettingsScreen
 import com.blazikener.devin.ui.theme.DevinTheme
-import java.net.URLDecoder
-import java.net.URLEncoder
 
 sealed interface Launch {
     data class OpenSession(val id: String) : Launch
@@ -81,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate("session/$it") })
                     }
                     composable("create?prompt={prompt}", arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
-                        val p = e.arguments?.getString("prompt")?.let { URLDecoder.decode(it, "UTF-8") }?.ifEmpty { null }
+                        val p = e.arguments?.getString("prompt")?.ifEmpty { null }
                         CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
                             nav.navigate("session/$id") { popUpTo("sessions") }
                         })
@@ -108,7 +106,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+        private fun enc(s: String) = android.net.Uri.encode(s)
         private val sessionUrl = Regex("""/sessions/([0-9a-fA-F]{32}|devin-[0-9a-fA-F]{32})""")
 
         fun parse(intent: Intent?): Launch? {
