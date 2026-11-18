@@ -28,6 +28,7 @@ internal data class SessionFeed(
     val loadingMore: Boolean = false,
     val error: String? = null,
     val pageError: String? = null,
+    val revision: Int = 0,
 ) {
     val loading: Boolean get() = !initialized
     val offline: Boolean get() = initialized && error != null
@@ -103,7 +104,7 @@ internal class SessionsViewModel(
     }
 
     private fun openFeed(key: SessionFeedKey) {
-        if (!_ui.value.feed(key).initialized) viewModelScope.launch { refresh(key) }
+        viewModelScope.launch { refresh(key) }
     }
 
     private suspend fun page(key: SessionFeedKey, first: Int, cursor: String?) =
@@ -113,9 +114,14 @@ internal class SessionsViewModel(
         writeCache(key.cacheKey, _ui.value.feed(key).items)
     }
 
+    private suspend fun readScopedCache(key: SessionFeedKey): List<Session>? =
+        readCache(key.cacheKey)?.filter { !key.mine || it.userId == null || it.userId == userId }
+
     fun setFilter(f: SessionFilter) {
+        val previous = _ui.value.key
         _ui.update { it.copy(filter = f) }
-        openFeed(_ui.value.key)
+        val key = _ui.value.key
+        if (key != previous) openFeed(key)
     }
 
     fun setQuery(q: String) = _ui.update { it.copy(query = q) }
@@ -139,19 +145,24 @@ internal class SessionsViewModel(
         updateFeed(key) { it.copy(refreshing = true, manualRefresh = manual) }
         try {
             if (!current.initialized) {
-                readCache(key.cacheKey)?.let { cached ->
-                    val scoped = if (key.mine) cached.filter { it.userId == null || it.userId == userId } else cached
-                    updateFeed(key) { it.copy(items = scoped, initialized = true) }
+                cacheWrites.withLock {
+                    if (!_ui.value.feed(key).initialized) {
+                        readScopedCache(key)?.let { cached ->
+                            updateFeed(key) { it.copy(items = cached, initialized = true) }
+                        }
+                    }
                 }
             }
             val items = mutableListOf<Session>()
-            val target = maxOf(PAGE_SIZE, _ui.value.feed(key).items.size)
+            val before = _ui.value.feed(key)
+            val target = maxOf(PAGE_SIZE, before.items.size)
             var cursor: String? = null
             do {
                 val next = page(key, (target - items.size).coerceIn(PAGE_SIZE, MAX_PAGE_SIZE), cursor)
                 items += next.items
                 cursor = next.nextCursor(cursor)
             } while (cursor != null && items.size < target)
+            if (_ui.value.feed(key).revision != before.revision) return
             updateFeed(key) {
                 it.copy(items = items.distinctBy(Session::id), initialized = true, cursor = cursor, error = null,
                     pageError = if (background) it.pageError?.takeIf { cursor != null } else null)
@@ -175,6 +186,7 @@ internal class SessionsViewModel(
         viewModelScope.launch {
             try {
                 val next = page(key, PAGE_SIZE, cursor)
+                if (_ui.value.feed(key).revision != current.revision) return@launch
                 updateFeed(key) {
                     it.copy(items = (it.items + next.items).distinctBy(Session::id), cursor = next.nextCursor(cursor))
                 }
@@ -192,28 +204,39 @@ internal class SessionsViewModel(
     fun togglePin(id: String) = changePin(id)
 
     fun act(id: String, action: SessionAction, onDone: (String) -> Unit) {
+        val origin = _ui.value
+        val row = origin.feed.items.find { it.id == id }
         viewModelScope.launch {
             try {
                 val updated = perform(id, action)
-                val archiveChanged = action == SessionAction.Archive || action == SessionAction.Unarchive
-                _ui.update { u ->
-                    u.copy(feeds = u.feeds.mapValues { (key, feed) ->
-                        val present = feed.items.any { it.id == id }
-                        val belongs = (present || !key.mine || updated.userId == userId) && key.archived == updated.isArchived
-                        when {
-                            archiveChanged && !belongs -> feed.copy(items = feed.items.filterNot { it.id == id })
-                            archiveChanged && feed.initialized -> feed.copy(items = listOf(updated) + feed.items.filterNot { it.id == id })
-                            present -> feed.copy(items = feed.items.map { if (it.id == id) updated else it })
-                            else -> feed
-                        }
-                    })
-                }
-                _ui.value.feeds.filterValues { it.initialized }.keys.forEach { persist(it) }
+                updateAfterAction(updated, action, row?.userId ?: userId.takeIf { origin.mineOnly })
                 onDone(action.done)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 onDone(e.message ?: "Failed")
+            }
+        }
+    }
+
+    private suspend fun updateAfterAction(session: Session, action: SessionAction, owner: String?) = cacheWrites.withLock {
+        val moved = action == SessionAction.Archive || action == SessionAction.Unarchive
+        val mine = userId != null && (session.userId ?: owner) == userId
+        for (mineOnly in if (mine) listOf(false, true) else listOf(false)) {
+            for (archived in if (moved) listOf(false, true) else listOf(session.isArchived)) {
+                val key = SessionFeedKey(mineOnly, archived)
+                val cached = if (_ui.value.feed(key).initialized) null else readScopedCache(key)
+                val feed = _ui.value.feed(key)
+                val previous = if (feed.initialized) feed.items else cached.orEmpty()
+                val items = when {
+                    !moved -> previous.map { if (it.id == session.id) session else it }
+                    archived == session.isArchived -> listOf(session) + previous.filterNot { it.id == session.id }
+                    else -> previous.filterNot { it.id == session.id }
+                }
+                if (items != previous) {
+                    updateFeed(key) { it.copy(items = items, initialized = true, revision = it.revision + 1) }
+                    writeCache(key.cacheKey, items)
+                }
             }
         }
     }
