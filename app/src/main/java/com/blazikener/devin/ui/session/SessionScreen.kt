@@ -336,18 +336,19 @@ private fun saveAttachment(
 ) {
     scope.launch {
         runCatching {
+            val fileName = java.io.File(a.name).name.ifBlank { "attachment" }
             val bytes = vm.download(a)
             withContext(Dispatchers.IO) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, a.name)
+                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                         put(MediaStore.Downloads.MIME_TYPE, a.contentType ?: "application/octet-stream")
                     }
                     val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
                     ctx.contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
                 } else {
                     val dir = ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!
-                    java.io.File(dir, a.name).writeBytes(bytes)
+                    java.io.File(dir, fileName).writeBytes(bytes)
                 }
             }
         }.onSuccess { snack.showSnackbar("Saved ${a.name} to Downloads") }
