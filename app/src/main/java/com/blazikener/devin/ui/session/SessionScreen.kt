@@ -354,6 +354,7 @@ private fun saveAttachment(
     scope: kotlinx.coroutines.CoroutineScope, snack: SnackbarHostState,
 ) {
     scope.launch {
+        snack.currentSnackbarData?.dismiss()
         val progress = launch { snack.showSnackbar("Downloading ${a.name}…", duration = SnackbarDuration.Indefinite) }
         runCatching {
             val fileName = java.io.File(a.name).name.ifBlank { "attachment" }
@@ -376,7 +377,7 @@ private fun saveAttachment(
         }.also { progress.cancel() }
             .onSuccess { uri ->
                 val open = uri?.let { Intent(Intent.ACTION_VIEW).setDataAndType(it, a.contentType ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                val result = snack.showSnackbar("Saved ${a.name} to Downloads", actionLabel = open?.let { "Open" }, withDismissAction = true)
+                val result = snack.showSnackbar("Saved ${a.name} to Downloads", actionLabel = open?.let { "Open" }, withDismissAction = true, duration = SnackbarDuration.Long)
                 if (result == SnackbarResult.ActionPerformed && open != null)
                     runCatching { ctx.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         .onFailure { snack.showSnackbar("No app can open ${a.name}") }
