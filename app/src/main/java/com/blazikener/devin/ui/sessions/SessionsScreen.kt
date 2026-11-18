@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,7 +89,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
     val account by g.auth.account.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var searching by remember { mutableStateOf(false) }
+    var searching by rememberSaveable { mutableStateOf(ui.query.isNotEmpty()) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -104,9 +105,20 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
             }
         }
     }
-    val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 >= listState.layoutInfo.totalItemsCount - 5 } }
-    LaunchedEffect(nearEnd, ui.all.size, ui.archived.size, ui.loadingMore, ui.hasMore) {
-        if (nearEnd && !ui.loadingMore && ui.hasMore) vm.loadMore()
+    val feed = ui.feed
+    val visible = remember(feed.items, ui.filter, ui.query, ui.pinned) { ui.visible }
+    val nearEnd by remember {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 5 } == true
+        }
+    }
+    LaunchedEffect(ui.key, ui.filter, ui.query) { listState.scrollToItem(0) }
+    val canLoadMore = feed.hasMore && !feed.loadingMore && !feed.refreshing && feed.error == null && feed.pageError == null
+    val waitingForMore = feed.loadingMore || canLoadMore ||
+        (feed.hasMore && feed.refreshing && feed.error == null && feed.pageError == null)
+    LaunchedEffect(ui.key, feed.cursor, nearEnd, visible.isEmpty(), canLoadMore) {
+        if (canLoadMore && (visible.isEmpty() || nearEnd)) vm.loadMore()
     }
 
     Scaffold(
@@ -127,7 +139,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                 },
                 actions = {
                     IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
-                        Icon(if (searching) Icons.Outlined.Close else Icons.Outlined.Search, contentDescription = "Search")
+                        Icon(if (searching) Icons.Outlined.Close else Icons.Outlined.Search, contentDescription = if (searching) "Close search" else "Search")
                     }
                     IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
                 },
@@ -144,7 +156,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (account?.userId != null) FilterChip(
-                    selected = ui.mineOnly, onClick = vm::toggleMine, label = { Text("Mine") },
+                    selected = ui.mineOnly, onClick = vm::toggleMine, label = { Text(if (ui.mineOnly) "Mine" else "All users") },
                     leadingIcon = { Icon(Icons.Outlined.Person, null, Modifier.size(16.dp)) },
                 )
                 SessionFilter.entries.forEach { f ->
@@ -161,7 +173,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                     )
                 }
             }
-            if (ui.offline) Row(
+            if (feed.offline) Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -169,18 +181,28 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                 Spacer(Modifier.width(6.dp))
                 Text("Offline — showing saved sessions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::pullRefresh, modifier = Modifier.fillMaxSize()) {
+            PullToRefreshBox(isRefreshing = feed.manualRefresh, onRefresh = vm::pullRefresh, modifier = Modifier.fillMaxSize()) {
                 when {
-                    ui.loading && ui.visible.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    ui.error != null && ui.visible.isEmpty() -> EmptyState("Couldn't load sessions", ui.error ?: "") {
+                    visible.isEmpty() && (waitingForMore || (feed.loading && feed.error == null)) ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    feed.error != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load sessions", feed.error) {
                         TextButton(onClick = vm::pullRefresh) { Text("Retry") }
                     }
-                    ui.visible.isEmpty() -> EmptyState(
+                    feed.pageError != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load more sessions", feed.pageError) {
+                        TextButton(onClick = { vm.loadMore(retry = true) }) { Text("Retry") }
+                    }
+                    visible.isEmpty() -> EmptyState(
                         if (ui.query.isNotBlank()) "No matches" else "Nothing here",
-                        if (ui.filter == SessionFilter.NeedsYou) "Devin doesn't need anything from you right now." else "Start a session and it shows up here.",
+                        when {
+                            feed.offline -> "No saved sessions match this view."
+                            ui.query.isNotBlank() -> "Try a different search."
+                            ui.filter == SessionFilter.NeedsYou -> "Devin doesn't need anything from you right now."
+                            ui.filter == SessionFilter.All -> "Start a session and it shows up here."
+                            else -> "No ${ui.filter.label.lowercase()} sessions."
+                        },
                     )
                     else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                        items(ui.visible, key = { it.id }) { s ->
+                        items(visible, key = { it.id }) { s ->
                             SessionRow(
                                 s, pinned = s.id in ui.pinned, onClick = { onOpen(s.id) },
                                 onAction = { action ->
@@ -192,7 +214,10 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
-                        if (ui.loadingMore) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } }
+                        if (feed.loadingMore) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } }
+                        if (feed.pageError != null && !feed.offline) item {
+                            TextButton(onClick = { vm.loadMore(retry = true) }, modifier = Modifier.fillMaxWidth()) { Text("Couldn't load more — retry") }
+                        }
                         item { Spacer(Modifier.size(88.dp)) }
                     }
                 }
