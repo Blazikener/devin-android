@@ -110,6 +110,7 @@ fun LoginScreen(onSignedIn: () -> Unit) {
                     if (ui.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Sign in")
                 }
                 Text("Your API key stays encrypted on this device.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Unofficial client for Devin. Not affiliated with Cognition.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { openUrl(ctx, "https://app.devin.ai/settings/service-users") }) {
                     Text("Get an API key (Settings → Service users)")
                 }
