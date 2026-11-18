@@ -76,7 +76,7 @@ fun DevinTheme(mode: ThemeMode = ThemeMode.System, dynamic: Boolean = false, con
             }
         }
     }
-    MaterialTheme(colorScheme = scheme, typography = Typography(), content = content)
+    MaterialTheme(colorScheme = scheme, typography = Typography()) { NoFullscreenKeyboard(content) }
 }
 
 fun SessionState.color(): Color = when (this) {
