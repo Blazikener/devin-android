@@ -124,6 +124,7 @@ fun HomeScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val compactHeight = LocalConfiguration.current.screenHeightDp < 480
     val imeVisible = WindowInsets.isImeVisible
+    val compactIme = compactHeight && imeVisible
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var prompt by rememberSaveable { mutableStateOf("") }
@@ -214,7 +215,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.onBackground,
         ) {
             Column(Modifier.fillMaxSize()) {
-                if (!(compactHeight && imeVisible)) {
+                if (!compactIme) {
                     Row(
                         Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -228,7 +229,7 @@ fun HomeScreen(
                         }
                     }
                 }
-                if (compactHeight && imeVisible) {
+                if (compactIme) {
                     Spacer(Modifier.weight(1f))
                 } else {
                     Box(
@@ -298,34 +299,36 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        if (compactHeight && imeVisible) {
+                        Column(
+                            Modifier.padding(
+                                horizontal = if (compactIme) 8.dp else 16.dp,
+                                vertical = if (compactIme) 6.dp else 12.dp,
+                            ),
+                        ) {
                             Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                                Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
                                 HomePromptField(
                                     prompt = prompt,
                                     onPromptChange = ::updatePrompt,
                                     onSend = ::send,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                                    maxLines = 2,
+                                    modifier = Modifier.weight(1f).padding(
+                                        horizontal = if (compactIme) 8.dp else 0.dp,
+                                        vertical = 6.dp,
+                                    ),
+                                    maxLines = if (compactIme) 2 else if (compactHeight) 3 else 6,
                                 )
-                                HomeSendButton(
-                                    enabled = prompt.isNotBlank() && !busy,
-                                    busy = busy,
-                                    onSend = ::send,
-                                )
+                                if (compactIme) {
+                                    HomeSendButton(
+                                        enabled = prompt.isNotBlank() && !busy,
+                                        busy = busy,
+                                        onSend = ::send,
+                                    )
+                                }
                             }
-                        } else {
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                HomePromptField(
-                                    prompt = prompt,
-                                    onPromptChange = ::updatePrompt,
-                                    onSend = ::send,
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                    maxLines = if (compactHeight) 3 else 6,
-                                )
+                            if (!compactIme) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
