@@ -1,6 +1,7 @@
 package com.blazikener.devin.ui.session
 
 import android.content.ContentValues
+import android.content.Intent
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,8 +55,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -351,6 +354,7 @@ private fun saveAttachment(
     scope: kotlinx.coroutines.CoroutineScope, snack: SnackbarHostState,
 ) {
     scope.launch {
+        val progress = launch { snack.showSnackbar("Downloading ${a.name}…", duration = SnackbarDuration.Indefinite) }
         runCatching {
             val fileName = java.io.File(a.name).name.ifBlank { "attachment" }
             val bytes = vm.download(a)
@@ -362,12 +366,21 @@ private fun saveAttachment(
                     }
                     val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
                     ctx.contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
+                    uri
                 } else {
                     val dir = ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!
                     java.io.File(dir, fileName).writeBytes(bytes)
+                    null
                 }
             }
-        }.onSuccess { snack.showSnackbar("Saved ${a.name} to Downloads") }
+        }.also { progress.cancel() }
+            .onSuccess { uri ->
+                val open = uri?.let { Intent(Intent.ACTION_VIEW).setDataAndType(it, a.contentType ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                val result = snack.showSnackbar("Saved ${a.name} to Downloads", actionLabel = open?.let { "Open" }, withDismissAction = true)
+                if (result == SnackbarResult.ActionPerformed && open != null)
+                    runCatching { ctx.startActivity(Intent.createChooser(open, a.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        .onFailure { snack.showSnackbar("No app can open ${a.name}") }
+            }
             .onFailure { openUrl(ctx, a.url) }
     }
 }
