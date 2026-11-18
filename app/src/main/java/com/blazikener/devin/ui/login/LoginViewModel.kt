@@ -41,6 +41,8 @@ class LoginViewModel(private val g: AppGraph) : ViewModel() {
         if (k.isEmpty()) { _ui.update { it.copy(error = "Paste your API key") }; return }
         val base = s.baseUrl.trim().trimEnd('/')
         val org = s.orgId.trim().ifEmpty { null }
+        apiKeyProblem(k)?.let { msg -> _ui.update { it.copy(error = msg) }; return }
+        baseUrlProblem(base)?.let { msg -> _ui.update { it.copy(advanced = true, error = msg) }; return }
         _ui.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             val probe = DevinApi({ base }, { k }, { org })
@@ -54,7 +56,7 @@ class LoginViewModel(private val g: AppGraph) : ViewModel() {
                         _ui.update { it.copy(busy = false, signedIn = true) }
                     }
                 }
-                .onFailure { e -> _ui.update { it.copy(busy = false, error = e.message ?: "Couldn't reach Devin") } }
+                .onFailure { e -> _ui.update { it.copy(busy = false, error = signInErrorMessage(e, base)) } }
         }
     }
 }
