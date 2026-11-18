@@ -113,7 +113,7 @@ class SessionsViewModel(private val g: AppGraph) : ViewModel() {
                         else it.copy(all = (it.all + page.items).distinctBy { x -> x.id }, hasMore = page.hasNextPage, loadingMore = false)
                     }
                 }
-                .onFailure { e -> _ui.update { it.copy(loadingMore = false, error = e.message) } }
+                .onFailure { e -> _ui.update { it.copy(loadingMore = false, hasMore = false, error = e.message) } }
         }
     }
 
