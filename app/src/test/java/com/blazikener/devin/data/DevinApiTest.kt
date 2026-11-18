@@ -153,4 +153,56 @@ class DevinApiTest {
         assertFalse(sameOrigin("https://api.devin.ai:8443/x", "https://api.devin.ai"))
         assertFalse(sameOrigin("http://api.devin.ai/x", "https://api.devin.ai"))
     }
+
+    @Test
+    fun listBotsUsesBetaRouteAndAcceptsAlternateFieldNames() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"items":[{"bot_id":"bot-1","name":"Triage","session_id":"devin-c","extra":1},{"id":"bot-2","display_name":"Docs","devin_id":"devin-d"}],"end_cursor":"bot-2","has_next_page":false}""",
+            ),
+        )
+
+        val page = api.listBots(first = 10)
+        val url = server.takeRequest().requestUrl!!
+
+        assertEquals("/v3beta1/organizations/org-1/bots", url.encodedPath)
+        assertEquals("10", url.queryParameter("first"))
+        assertEquals(listOf("bot-1", "bot-2"), page.items.map { it.id })
+        assertEquals(listOf("Triage", "Docs"), page.items.map { it.displayName })
+        assertEquals(listOf("devin-c", "devin-d"), page.items.map { it.conversationSessionId })
+    }
+
+    @Test
+    fun botWithoutNameOrConversationStillParses() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"bot_id":"bot-9"}"""))
+
+        val bot = api.bot("bot-9")
+
+        assertEquals("/v3beta1/organizations/org-1/bots/bot-9", server.takeRequest().requestUrl!!.encodedPath)
+        assertEquals("Unnamed Bot", bot.displayName)
+        assertEquals(null, bot.conversationSessionId)
+    }
+
+    @Test
+    fun botSessionsAndSendMessageUseBotRoutes() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"items":[{"session_id":"devin-s","status":"running"}],"has_next_page":false}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+
+        assertEquals("devin-s", api.botSessions("bot-1").items.single().id)
+        assertEquals("/v3beta1/organizations/org-1/bots/bot-1/sessions", server.takeRequest().requestUrl!!.encodedPath)
+
+        api.sendBotMessage("bot-1", BotMessageRequest("hello"))
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("/v3beta1/organizations/org-1/bots/bot-1/messages", post.requestUrl!!.encodedPath)
+        assertEquals("hello", kotlinx.serialization.json.Json.parseToJsonElement(post.body.readUtf8()).jsonObject["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun botsForbiddenSurfacesApiException() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"detail":"Forbidden"}"""))
+
+        val e = runCatching { api.listBots() }.exceptionOrNull()
+        assertTrue(e is ApiException && e.code == 403)
+    }
 }

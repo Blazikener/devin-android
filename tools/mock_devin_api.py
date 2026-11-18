@@ -4,6 +4,7 @@
 import argparse
 import copy
 import json
+import os
 import re
 import threading
 import time
@@ -19,6 +20,8 @@ SESSIONS = {}
 MESSAGES = {}
 UPLOADS = {}
 ATTACHMENTS = {}
+BOTS = {}
+BOTS_ENABLED = os.environ.get("MOCK_BOTS", "on") != "off"
 NOW = int(time.time())
 
 
@@ -197,6 +200,50 @@ def seed_data():
     ]
 
 
+def make_bot(bot_hex, name, description, age, conversation=True):
+    bot_id = f"bot-{bot_hex}"
+    conv = None
+    if conversation:
+        conv = make_session(None, f"{name} chat", status="running", status_detail="waiting_for_user", age=age)
+        conv["bot_chat"] = bot_id
+        SESSIONS[conv["session_id"]] = conv
+    BOTS[bot_id] = {
+        "bot_id": bot_id,
+        "name": name,
+        "description": description,
+        "url": f"https://app.devin.ai/bots/{bot_id}",
+        "status": "active",
+        "session_id": conv["session_id"] if conv else None,
+        "created_at": NOW - age - 86400,
+        "updated_at": NOW - age,
+        "is_archived": False,
+    }
+    return BOTS[bot_id]
+
+
+def seed_bots():
+    triage = make_bot("triage", "Triage Bot", "Watches the bugs channel and files fixes for new reports.", 300)
+    add_message(triage["session_id"], "user", "What came in overnight?", 900, "Mock User")
+    add_message(
+        triage["session_id"],
+        "devin",
+        "Two new reports overnight. I started a session for the **login crash** and the other one is a duplicate.",
+        880,
+    )
+    release = make_bot("release", "Release Bot", "Prepares release notes and checks CI before each release.", 7200)
+    add_message(release["session_id"], "devin", "Release notes for 0.2.0 are drafted.", 7200)
+    make_bot("archived", "Old Bot", "Archived.", 99999, conversation=False)["is_archived"] = True
+    make_bot("docs", "Docs Bot", "Keeps the README in sync with the code.", 86400, conversation=False)
+    for hex_id, title, status, detail, bot in [
+        ("b0" * 16, "Fix login crash on Android 14", "running", None, triage),
+        ("b1" * 16, "Close duplicate bug report", "exit", None, triage),
+        ("b2" * 16, "Draft 0.2.0 release notes", "running", "waiting_for_user", release),
+    ]:
+        session = make_session(hex_id, title, status=status, status_detail=detail, age=600)
+        session["bot_id"] = bot["bot_id"]
+        SESSIONS[session["session_id"]] = session
+
+
 class MockDevinHandler(BaseHTTPRequestHandler):
     server_version = "MockDevinAPI/1.0"
 
@@ -265,10 +312,57 @@ class MockDevinHandler(BaseHTTPRequestHandler):
                     "user_name": "Mock User",
                 },
             )
+        elif len(parts) >= 5 and parts[1:3] == ["v3beta1", "organizations"] and parts[4] == "bots":
+            self.handle_bots(parts[5:], query)
         elif len(parts) == 5 and parts[1:3] == ["v3", "organizations"]:
             self.handle_collection(parts[3], parts[4], query)
         elif len(parts) >= 6 and parts[1:3] == ["v3", "organizations"]:
             self.handle_session(parts[3], parts[4], parts[5:], query)
+        else:
+            self.error(404, "Not found")
+
+    def handle_bots(self, suffix, query):
+        if not BOTS_ENABLED:
+            self.error(404, "Not found")
+            return
+        if not suffix and self.command == "GET":
+            with LOCK:
+                entries = sorted(BOTS.values(), key=lambda bot: bot["updated_at"], reverse=True)
+                result = self.page(copy.deepcopy(entries), query, "bot_id")
+            self.respond(200, result)
+            return
+        with LOCK:
+            bot = BOTS.get(suffix[0])
+        if bot is None:
+            self.error(404, "Bot not found")
+        elif len(suffix) == 1 and self.command == "GET":
+            with LOCK:
+                self.respond(200, copy.deepcopy(bot))
+        elif suffix[1:] == ["sessions"] and self.command == "GET":
+            with LOCK:
+                entries = [s for s in SESSIONS.values() if s.get("bot_id") == bot["bot_id"]]
+                entries.sort(key=lambda entry: (entry["updated_at"], entry["session_id"]), reverse=True)
+                result = self.page(copy.deepcopy(entries), query, "session_id")
+            self.respond(200, result)
+        elif suffix[1:] == ["messages"] and self.command == "POST":
+            try:
+                message = self.json_body()["message"]
+                if not isinstance(message, str) or not message.strip():
+                    raise ValueError
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                self.error(400, "Invalid message")
+                return
+            with LOCK:
+                if not bot["session_id"]:
+                    conv = make_session(None, f"{bot['name']} chat")
+                    conv["bot_chat"] = bot["bot_id"]
+                    SESSIONS[conv["session_id"]] = conv
+                    bot["session_id"] = conv["session_id"]
+                bot["updated_at"] = int(time.time())
+                conv_id = bot["session_id"]
+            self.add_user_message(conv_id, message)
+            self.schedule_reply(conv_id, message)
+            self.respond(200, {"bot_id": bot["bot_id"], "session_id": conv_id})
         else:
             self.error(404, "Not found")
 
@@ -312,7 +406,7 @@ class MockDevinHandler(BaseHTTPRequestHandler):
 
     def list_sessions(self, query):
         with LOCK:
-            entries = list(SESSIONS.values())
+            entries = [entry for entry in SESSIONS.values() if not entry.get("bot_chat")]
             archived = query.get("is_archived", [None])[0]
             if archived is not None:
                 want_archived = archived.lower() == "true"
@@ -559,6 +653,7 @@ def main():
     parser.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
     seed_data()
+    seed_bots()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), MockDevinHandler)
     print(f"Mock Devin API listening on http://0.0.0.0:{args.port}", flush=True)
     try:
