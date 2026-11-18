@@ -40,6 +40,7 @@ class SessionsViewModelTest {
     }
 
     private fun model(
+        perform: suspend (String, SessionAction) -> Session = { _, _ -> error("Unexpected action") },
         fetch: suspend (Int, String?, Boolean, List<String>?) -> Page<Session>,
     ) = SessionsViewModel(
         userId = "me",
@@ -48,7 +49,7 @@ class SessionsViewModelTest {
         writeCache = { key, items -> cache[key] = items },
         pinned = MutableStateFlow(emptySet()),
         changePin = {},
-        perform = { _, _ -> error("Unexpected action") },
+        perform = perform,
     ).also { models.add(it) }
 
     @Test
@@ -99,26 +100,55 @@ class SessionsViewModelTest {
     @Test
     fun retryUsesSameCursorAndPagingWritesTheOfflineSnapshot() = runTest {
         var failPage = true
+        val firstPage = (1..50).map { Session("session-$it", userId = "me", updatedAt = -it.toLong()) }
+        val last = mine.copy(updatedAt = -51)
         val vm = model { _, cursor, _, _ ->
             when (cursor) {
-                null -> Page(listOf(mine), endCursor = "page-2", hasNextPage = true)
-                "page-2" -> if (failPage) throw IOException("Async failure") else Page(listOf(other))
+                null -> Page(firstPage, endCursor = "page-2", hasNextPage = true)
+                "page-2" -> if (failPage) throw IOException("Async failure") else Page(listOf(last))
                 else -> error("Unexpected cursor: $cursor")
             }
         }
         runCurrent()
         vm.loadMore()
         runCurrent()
-        assertEquals(listOf(mine), vm.ui.value.visible)
+        assertEquals(firstPage, vm.ui.value.visible)
         assertEquals("Async failure", vm.ui.value.feed.pageError)
         assertTrue(vm.ui.value.feed.hasMore)
 
         failPage = false
         vm.loadMore(retry = true)
         runCurrent()
-        assertEquals(listOf(mine, other), vm.ui.value.visible)
-        assertEquals(listOf(mine, other), cache["mine"])
+        assertEquals(firstPage + last, vm.ui.value.visible)
+        assertEquals(firstPage + last, cache["mine"])
         assertFalse(vm.ui.value.feed.hasMore)
+    }
+
+    @Test
+    fun archiveSurvivesOfflineRestartBeforeEverOpeningArchived() = runTest {
+        val moved = mine.copy(isArchived = true, updatedAt = 10)
+        cache["mine_archived"] = listOf(archived)
+        val staleRefresh = CompletableDeferred<Page<Session>>()
+        var calls = 0
+        val vm = model(perform = { _, _ -> moved }) { _, _, _, _ ->
+            if (calls++ == 0) Page(listOf(mine)) else staleRefresh.await()
+        }
+        runCurrent()
+        vm.pullRefresh()
+        runCurrent()
+        vm.act(mine.id, SessionAction.Archive) {}
+        runCurrent()
+        staleRefresh.complete(Page(listOf(mine)))
+        runCurrent()
+
+        assertTrue(vm.ui.value.visible.isEmpty())
+        val restarted = model { _, _, _, _ -> throw IOException("Offline") }
+        runCurrent()
+        assertTrue(restarted.ui.value.visible.isEmpty())
+        restarted.setFilter(SessionFilter.Archived)
+        runCurrent()
+        assertEquals(listOf(moved, archived), restarted.ui.value.visible)
+        assertEquals(listOf(moved), cache["org_archived"])
     }
 
     @Test
