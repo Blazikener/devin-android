@@ -62,4 +62,34 @@ class MarkdownParserTest {
             MarkdownParser.parse("first\n\nsecond"),
         )
     }
+
+    @Test
+    fun parsesTables() {
+        assertEquals(
+            listOf(
+                MdBlock.Paragraph("intro"),
+                MdBlock.Table(listOf("A", "B"), listOf(listOf("1", "`x`"), listOf("2", ""))),
+                MdBlock.Paragraph("after"),
+            ),
+            MarkdownParser.parse("intro\n| A | B |\n| --- | :-: |\n| 1 | `x` |\n| 2 |\n\nafter"),
+        )
+    }
+
+    @Test
+    fun escapedPipesStayInCell() {
+        assertEquals(
+            listOf(MdBlock.Table(listOf("Op", "Meaning"), listOf(listOf("a | b", "or")))),
+            MarkdownParser.parse("| Op | Meaning |\n|---|---|\n| a \\| b | or |"),
+        )
+    }
+
+    @Test
+    fun pipeLineWithoutSeparatorIsParagraph() {
+        assertEquals(listOf(MdBlock.Paragraph("| not a table |")), MarkdownParser.parse("| not a table |"))
+    }
+
+    @Test
+    fun joinsConsecutiveQuoteLines() {
+        assertEquals(listOf(MdBlock.Quote("one\ntwo")), MarkdownParser.parse("> one\n> two"))
+    }
 }
