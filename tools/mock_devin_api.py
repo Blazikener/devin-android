@@ -64,12 +64,44 @@ def add_message(session, source, text, age, username=None):
         "event_id": f"event-{uuid.uuid4().hex}",
         "source": source,
         "message": text,
-        "created_at": NOW - age,
+        "created_at": int(time.time()) - age,
         "username": username,
         "user_id": "user-mock" if source == "user" else None,
         "origin": "web",
     }
     MESSAGES.setdefault(session, []).append(event)
+
+
+MARKDOWN_DEMO = """## Retry plan
+
+Here is what I changed, in **three** steps:
+
+1. Wrapped `execute()` in a bounded retry loop
+2. Skipped retries for *auth* errors (`401`, `403`)
+3. Added a unit test
+
+| Attempt | Delay | Retried on |
+| --- | --- | --- |
+| 1 | 0 ms | connect failure |
+| 2 | 500 ms | `5xx` |
+
+```kotlin
+suspend fun <T> withRetry(times: Int = 3, block: suspend () -> T): T {
+    repeat(times - 1) { attempt -> runCatching { return block() }.onFailure { delay(500L * (attempt + 1)) } }
+    return block()
+}
+```
+
+> Retries never repeat a request that already reached the server.
+
+- Nested list:
+  - one
+  - two
+- ~~old approach~~ replaced
+
+---
+
+See https://github.com/acme/android/pull/7 and the [docs](https://docs.devin.ai)."""
 
 
 def seed_data():
@@ -386,13 +418,13 @@ class MockDevinHandler(BaseHTTPRequestHandler):
             with LOCK:
                 if session not in SESSIONS:
                     return
-                add_message(
-                    session,
-                    "devin",
-                    f"I've received your request: **{prompt[:160]}**\n\n"
-                    "I'll work through it now. You can send another message whenever you're ready.",
-                    0,
+                text = (
+                    MARKDOWN_DEMO
+                    if prompt.strip().lower() == "/markdown"
+                    else f"I've received your request: **{prompt[:160]}**\n\n"
+                    "I'll work through it now. You can send another message whenever you're ready."
                 )
+                add_message(session, "devin", text, 0)
                 SESSIONS[session]["status"] = "running"
                 SESSIONS[session]["status_detail"] = "waiting_for_user"
                 SESSIONS[session]["updated_at"] = int(time.time())
