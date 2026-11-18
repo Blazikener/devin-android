@@ -1,6 +1,6 @@
 # Devin for Android
 
-A native Android client for managing Devin sessions from your phone.
+An unofficial native Android client for managing Devin sessions from your phone. Not affiliated with Cognition.
 
 ## Features
 
