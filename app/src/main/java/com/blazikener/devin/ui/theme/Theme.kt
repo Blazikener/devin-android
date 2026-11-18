@@ -100,7 +100,7 @@ fun DevinTheme(mode: ThemeMode = ThemeMode.System, dynamic: Boolean = false, con
     MaterialTheme(
         colorScheme = scheme, typography = DevinType,
         shapes = Shapes(small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(18.dp), large = RoundedCornerShape(24.dp)),
-        content = content,
+        content = { NoFullscreenKeyboard(content) },
     )
 }
 
