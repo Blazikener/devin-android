@@ -1,6 +1,19 @@
 package com.blazikener.devin.ui.sessions
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -73,9 +86,11 @@ import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.EmptyState
+import com.blazikener.devin.ui.components.DevinOrb
 import com.blazikener.devin.ui.components.StatusPill
 import com.blazikener.devin.ui.components.openUrl
 import com.blazikener.devin.ui.components.relativeTime
+import com.blazikener.devin.ui.theme.color
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -129,12 +144,8 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                         value = ui.query, onValueChange = vm::setQuery, singleLine = true,
                         placeholder = { Text("Search titles, tags, PRs") }, modifier = Modifier.fillMaxWidth(),
                     ) else Column {
-                        Text("Sessions", fontWeight = FontWeight.SemiBold)
-                        val sub = buildList {
-                            if (ui.needsYouCount > 0) add("${ui.needsYouCount} need you")
-                            if (ui.workingCount > 0) add("${ui.workingCount} working")
-                        }.joinToString(" · ")
-                        if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Devin", style = MaterialTheme.typography.titleLarge)
+                        Text("YOUR WORKSPACE", style = MaterialTheme.typography.labelSmall, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
@@ -146,11 +157,12 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("New session") })
+            ExtendedFloatingActionButton(onClick = onNew, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("New session") }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
         },
         snackbarHost = { SnackbarHost(snack) },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+            if (!searching) WorkspaceOverview(ui.workingCount, ui.needsYouCount)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -201,7 +213,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                             else -> "No ${ui.filter.label.lowercase()} sessions."
                         },
                     )
-                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(visible, key = { it.id }) { s ->
                             SessionRow(
                                 s, pinned = s.id in ui.pinned, onClick = { onOpen(s.id) },
@@ -211,8 +223,8 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                                 },
                                 onPin = { vm.togglePin(s.id) },
                                 onOpenWeb = { openUrl(ctx, s.url) },
+                                modifier = Modifier.animateItem(),
                             )
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                         if (feed.loadingMore) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } }
                         if (feed.pageError != null && !feed.offline) item {
@@ -240,18 +252,44 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
     }
 }
 
+@Composable
+private fun WorkspaceOverview(working: Int, needsYou: Int) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceContainerLow)))
+            .padding(start = 20.dp, top = 18.dp, bottom = 18.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("Your work,\nin motion.", style = MaterialTheme.typography.headlineMedium)
+            Text("$working working  ·  $needsYou need you", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // Static here: movement belongs to state changes, not a constantly moving inbox.
+        DevinOrb(Modifier.size(108.dp))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
     s: Session, pinned: Boolean, onClick: () -> Unit, onAction: (SessionAction) -> Unit,
     onPin: () -> Unit, onOpenWeb: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
-    Box {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, spring(stiffness = 650f), label = "session press")
+    Surface(
+        modifier.graphicsLayer { scaleX = scale; scaleY = scale }, shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, if (s.state.needsAttention) s.state.color().copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) { Box {
         Column(
-            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().combinedClickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClick = onClick, onLongClick = { menu = true })
+                .padding(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (pinned) { Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(4.dp)) }
@@ -260,7 +298,7 @@ private fun SessionRow(
                 Spacer(Modifier.width(8.dp))
                 Text(relativeTime(s.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.size(6.dp))
+            Spacer(Modifier.size(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusPill(s.state)
                 s.pullRequests.firstOrNull()?.let { pr ->
@@ -282,5 +320,5 @@ private fun SessionRow(
             if (s.state.isActive || s.state.needsAttention) DropdownMenuItem(text = { Text("Put to sleep") }, onClick = { menu = false; onAction(SessionAction.Sleep) })
             DropdownMenuItem(text = { Text("Terminate", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onAction(SessionAction.Terminate) })
         }
-    }
+    } }
 }

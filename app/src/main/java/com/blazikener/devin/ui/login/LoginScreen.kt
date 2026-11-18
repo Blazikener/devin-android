@@ -45,6 +45,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.graph
 import com.blazikener.devin.ui.components.openUrl
+import com.blazikener.devin.ui.components.DevinOrb
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun LoginScreen(onSignedIn: () -> Unit) {
@@ -59,13 +63,14 @@ fun LoginScreen(onSignedIn: () -> Unit) {
     Scaffold { pad ->
         Box(Modifier.fillMaxSize().padding(pad).imePadding(), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.widthIn(max = 480.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
+                Modifier.widthIn(max = 480.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Spacer(Modifier.height(24.dp))
-                Text("Devin", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+                DevinOrb(Modifier.size(116.dp).align(Alignment.CenterHorizontally), animated = true)
+                Text("DEVIN / ON THE GO", style = MaterialTheme.typography.labelSmall, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.primary)
+                Text("Big ideas.\nIn your hands.", style = MaterialTheme.typography.displaySmall)
                 Text(
-                    "Run and steer your Devin sessions from your phone. Sign in with a Devin API key; it's stored encrypted on this device only.",
+                    "Your AI software engineer, wherever you are. Start work, stay in the loop, and keep things moving.",
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -88,22 +93,23 @@ fun LoginScreen(onSignedIn: () -> Unit) {
                         }
                     },
                 )
-                if (ui.needOrg || ui.advanced) OutlinedTextField(
+                AnimatedVisibility(ui.needOrg || ui.advanced) { OutlinedTextField(
                     value = ui.orgId, onValueChange = vm::setOrgId, label = { Text("Organization ID") },
                     placeholder = { Text("org-…") }, singleLine = true, enabled = !ui.busy, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = if (ui.advanced) ImeAction.Next else ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); vm.submit() }),
-                )
-                if (ui.advanced) OutlinedTextField(
+                ) }
+                AnimatedVisibility(ui.advanced) { OutlinedTextField(
                     value = ui.baseUrl, onValueChange = vm::setBaseUrl, label = { Text("API base URL") },
                     singleLine = true, enabled = !ui.busy, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); vm.submit() }),
-                )
+                ) }
                 ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 Button(onClick = { focus.clearFocus(); vm.submit() }, enabled = !ui.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                     if (ui.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Sign in")
                 }
+                Text("Your API key stays encrypted on this device.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { openUrl(ctx, "https://app.devin.ai/settings/service-users") }) {
                     Text("Get an API key (Settings → Service users)")
                 }
