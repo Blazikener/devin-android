@@ -132,6 +132,8 @@ private fun OrgForm(onSave: (String) -> Unit) {
 private fun BotsWeb(org: String, onOpenSession: (String) -> Unit, onWeb: (WebView?) -> Unit, onCanGoBack: (Boolean) -> Unit) {
     var progress by remember { mutableFloatStateOf(0f) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Restores the page after a native session screen disposes this WebView.
+    var lastUrl by rememberSaveable(org) { mutableStateOf(botsUrl(org)) }
     val ctx = LocalContext.current
     val view = remember(org) {
         WebView(ctx).apply {
@@ -159,7 +161,7 @@ private fun BotsWeb(org: String, onOpenSession: (String) -> Unit, onWeb: (WebVie
                     if (id != null) {
                         if (view.canGoBack()) view.goBack() else view.loadUrl(botsUrl(org))
                         onOpenSession(id)
-                    }
+                    } else if (url.startsWith("https://app.devin.ai/")) lastUrl = url
                     onCanGoBack(view.canGoBack())
                 }
 
@@ -174,7 +176,7 @@ private fun BotsWeb(org: String, onOpenSession: (String) -> Unit, onWeb: (WebVie
                     if (request.isForMainFrame) error = "Couldn't load Devin (${err.description})."
                 }
             }
-            loadUrl(botsUrl(org))
+            loadUrl(lastUrl)
         }
     }
     DisposableEffect(view) {
