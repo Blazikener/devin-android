@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +65,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val g = ctx.graph
     val s by g.settings.settings.collectAsStateWithLifecycle()
     val account by g.auth.account.collectAsStateWithLifecycle()
-    var confirmOut by remember { mutableStateOf(false) }
+    var confirmOut by rememberSaveable { mutableStateOf(false) }
     var canNotify by remember { mutableStateOf(Notifications.canPost(ctx)) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         canNotify = granted
