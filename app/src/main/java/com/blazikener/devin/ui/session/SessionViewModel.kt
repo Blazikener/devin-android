@@ -141,7 +141,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     fun send(text: String) {
         val urls = _ui.value.drafts.mapNotNull { it.uploadedUrl }
         if (text.isBlank() && urls.isEmpty()) return
-        val p = Pending(System.nanoTime().toString(), text.trim(), urls)
+        val p = Pending(System.nanoTime().toString(), text.trim().ifBlank { "See attached." }, urls)
         _ui.update { it.copy(pending = it.pending + p, drafts = emptyList()) }
         saveDraft("")
         deliver(p)
