@@ -40,8 +40,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // On recreation (rotation, process death) the nav back stack already holds the launch.
-        if (savedInstanceState == null) pending.value = parse(intent)
+        // On recreation (rotation, process death) the nav back stack already holds a handled launch;
+        // one still waiting for sign-in is replayed.
+        if (savedInstanceState?.getBoolean(LAUNCH_PENDING) != false) pending.value = parse(intent)
         setContent {
             val g = graph
             val settings by g.settings.settings.collectAsStateWithLifecycle()
@@ -97,7 +98,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         parse(intent)?.let { pending.value = it }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(LAUNCH_PENDING, pending.value != null)
     }
 
     private fun NavHostController.back() { if (!popBackStack()) navigate("sessions") }
@@ -124,6 +131,7 @@ class MainActivity : ComponentActivity() {
         }
         /** The v3 API addresses sessions as `devin-<hex>`; web URLs use the bare hex. */
         fun normalizeId(id: String) = if (id.startsWith("devin-")) id else "devin-$id"
-        const val ACTION_NEW_SESSION = "com.blazikener.devin.NEW_SESSION"
+        private const val LAUNCH_PENDING = "launch_pending"
+const val ACTION_NEW_SESSION = "com.blazikener.devin.NEW_SESSION"
     }
 }
