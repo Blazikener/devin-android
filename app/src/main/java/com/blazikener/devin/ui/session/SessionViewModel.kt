@@ -12,6 +12,7 @@ import com.blazikener.devin.data.SessionAttachment
 import com.blazikener.devin.data.SessionMessage
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,6 +101,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             }
             if (fresh.any { it.fromDevin } || oldAtt == 0) loadAttachments()
         }.onFailure { e ->
+            if (e is CancellationException) throw e
             _ui.update { it.copy(loading = false, error = e.message, offline = it.messages.isNotEmpty()) }
         }
     }

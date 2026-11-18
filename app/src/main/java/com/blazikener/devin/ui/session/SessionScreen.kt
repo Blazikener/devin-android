@@ -183,7 +183,12 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                 if (ui.loading && ui.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("messages"), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (ui.messages.isEmpty() && ui.pending.isEmpty()) item {
-                        Text("No messages yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                        val missing = s == null && ui.error != null
+                        Text(
+                            if (missing) "Couldn't open this session: ${ui.error}" else "No messages yet.",
+                            color = if (missing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
                     }
                     items(ui.messages, key = { it.eventId }) { m -> MessageBubble(m) }
                     items(ui.pending, key = { it.localId }) { p -> PendingBubble(p, onRetry = { vm.retry(p) }, onDiscard = { vm.discard(p) }) }
