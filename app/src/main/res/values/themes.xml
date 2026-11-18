@@ -1,0 +1,9 @@
+<resources>
+    <color name="brand">#2D6BFF</color>
+    <color name="launcher_bg">#0B1020</color>
+    <style name="Theme.Devin" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFBFCFF</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
