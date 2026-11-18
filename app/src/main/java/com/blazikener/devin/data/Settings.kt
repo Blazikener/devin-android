@@ -61,6 +61,7 @@ class SettingsStore(context: Context) {
     fun saveDraft(sessionId: String, text: String) {
         drafts.edit().apply { if (text.isBlank()) remove(sessionId) else putString(sessionId, text) }.apply()
     }
+    fun clearDrafts() = drafts.edit().clear().apply()
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)
     private val _pinned = MutableStateFlow(pins.getStringSet("ids", emptySet())!!.toSet())
