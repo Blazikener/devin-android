@@ -185,6 +185,9 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
             if (ui.offline) Banner(Icons.Outlined.CloudOff, "Offline — showing saved messages. ${ui.error ?: ""}")
+            else if (ui.error != null && ui.messages.isEmpty() && ui.session == null) Banner(Icons.Outlined.CloudOff, "Couldn't load this session: ${ui.error}") {
+                TextButton(onClick = { scope.launch { vm.refresh() } }) { Text("Retry") }
+            }
             if (s != null) SessionContext(s, ui.attachments, onOpenSession, onAttachment = { a -> saveAttachment(ctx, vm, a, scope, snack) })
             Box(Modifier.weight(1f)) {
                 if (ui.loading && ui.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
