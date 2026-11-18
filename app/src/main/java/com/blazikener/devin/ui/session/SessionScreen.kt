@@ -132,9 +132,17 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> uris.forEach(vm::addFile) }
 
+    // The list is reverse-laid-out (index 0 = newest), so it opens at the latest message and stays
+    // pinned there when the keyboard shrinks the viewport.
+    val s = ui.session
     val itemCount = ui.messages.size + ui.pending.size
-    val atBottom by remember { derivedStateOf { !list.canScrollForward } }
-    LaunchedEffect(itemCount) { if (itemCount > 0 && (atBottom || ui.pending.isNotEmpty())) list.animateScrollToItem(itemCount) }
+    val atBottom by remember { derivedStateOf { !list.canScrollBackward } }
+    val newest = ui.pending.lastOrNull()?.localId ?: ui.messages.lastOrNull()?.eventId
+    val mineNewest = ui.pending.isNotEmpty() || ui.messages.lastOrNull()?.fromDevin == false
+    var followNewest by remember { mutableStateOf(true) }
+    LaunchedEffect(atBottom) { if (atBottom) followNewest = true }
+    LaunchedEffect(list.isScrollInProgress) { if (list.isScrollInProgress && !atBottom) followNewest = false }
+    LaunchedEffect(newest, s?.state?.isActive) { if (newest != null && (followNewest || mineNewest)) list.animateScrollToItem(0) }
 
     fun send() {
         if (!vm.canSend) return
@@ -143,7 +151,6 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     fun act(label: String, block: suspend () -> com.blazikener.devin.data.Session) =
         vm.act(block) { err -> scope.launch { snack.showSnackbar(err ?: label) } }
 
-    val s = ui.session
     Scaffold(
         topBar = {
             TopAppBar(
@@ -181,16 +188,16 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
             if (s != null) SessionContext(s, ui.attachments, onOpenSession, onAttachment = { a -> saveAttachment(ctx, vm, a, scope, snack) })
             Box(Modifier.weight(1f)) {
                 if (ui.loading && ui.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                else LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("messages"), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                else LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("messages"), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom), reverseLayout = true) {
+                    if (s?.state?.isActive == true) item(key = "working") { WorkingIndicator() }
+                    items(ui.pending.asReversed(), key = { it.localId }) { p -> PendingBubble(p, onRetry = { vm.retry(p) }, onDiscard = { vm.discard(p) }) }
+                    items(ui.messages.asReversed(), key = { it.eventId }) { m -> MessageBubble(m) }
                     if (ui.messages.isEmpty() && ui.pending.isEmpty()) item {
                         Text("No messages yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                     }
-                    items(ui.messages, key = { it.eventId }) { m -> MessageBubble(m) }
-                    items(ui.pending, key = { it.localId }) { p -> PendingBubble(p, onRetry = { vm.retry(p) }, onDiscard = { vm.discard(p) }) }
-                    if (s?.state?.isActive == true) item { WorkingIndicator() }
                 }
                 if (!atBottom && itemCount > 3) SmallFloatingActionButton(
-                    onClick = { scope.launch { list.animateScrollToItem(itemCount) } },
+                    onClick = { scope.launch { list.animateScrollToItem(0) } },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 ) {
                     Icon(Icons.Outlined.KeyboardArrowDown, "Jump to latest")
