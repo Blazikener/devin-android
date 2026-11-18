@@ -378,7 +378,7 @@ private fun saveAttachment(
                 val open = uri?.let { Intent(Intent.ACTION_VIEW).setDataAndType(it, a.contentType ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                 val result = snack.showSnackbar("Saved ${a.name} to Downloads", actionLabel = open?.let { "Open" }, withDismissAction = true)
                 if (result == SnackbarResult.ActionPerformed && open != null)
-                    runCatching { ctx.startActivity(Intent.createChooser(open, a.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    runCatching { ctx.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         .onFailure { snack.showSnackbar("No app can open ${a.name}") }
             }
             .onFailure { openUrl(ctx, a.url) }
