@@ -69,23 +69,29 @@ class SessionWatcher(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     changedState && s.state.needsAttention && needsYou -> Notifications.show(
                         ctx, Notifications.CH_NEEDS_YOU, s,
                         if (s.state == SessionState.Blocked) "Devin is blocked" else "Devin needs you",
-                        lastDevin?.second?.take(400) ?: s.displayTitle, allowReply = s.state != SessionState.Blocked,
+                        lastDevin?.second ?: s.displayTitle, allowReply = s.state != SessionState.Blocked,
                     )
                     changedState && s.state == SessionState.Finished && finished -> Notifications.show(
                         ctx, Notifications.CH_FINISHED, s, "Session finished",
-                        lastDevin?.second?.take(400) ?: s.displayTitle, allowReply = true,
+                        lastDevin?.second ?: s.displayTitle, allowReply = true,
                     )
                     changedState && s.state == SessionState.Error && finished -> Notifications.show(
                         ctx, Notifications.CH_FINISHED, s, "Session hit an error", s.displayTitle, allowReply = false,
                     )
                     newMessage && messages && prev != null -> Notifications.show(
                         ctx, Notifications.CH_MESSAGES, s, "New message from Devin",
-                        lastDevin!!.second.take(400), allowReply = true,
+                        lastDevin!!.second, allowReply = true,
                     )
                 }
             }
             edit.putBoolean("baseline", true).apply()
             g.settings.value // touch to keep settings warm
+        }
+
+        /** Records a state the user caused themselves (sleep, terminate) so it never alerts them. */
+        fun markSeen(ctx: Context, s: Session) {
+            ctx.getSharedPreferences("watcher", Context.MODE_PRIVATE).edit()
+                .putString("s_${s.id}", "${s.state.name}|${s.updatedAt}").apply()
         }
 
         private suspend fun latestDevinMessage(ctx: Context, id: String): Pair<String, String>? {

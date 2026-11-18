@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.blazikener.devin.R
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.MainActivity
+import com.blazikener.devin.ui.components.MarkdownParser
 
 object Notifications {
     const val CH_NEEDS_YOU = "needs_you"
@@ -55,8 +56,9 @@ object Notifications {
         return PendingIntent.getActivity(ctx, notificationId(sessionId), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun show(ctx: Context, channel: String, session: Session, title: String, body: String, allowReply: Boolean) {
+    fun show(ctx: Context, channel: String, session: Session, title: String, markdown: String, allowReply: Boolean) {
         if (!canPost(ctx)) return
+        val body = MarkdownParser.plain(markdown).take(400)
         val b = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat_devin)
             .setContentTitle(title)

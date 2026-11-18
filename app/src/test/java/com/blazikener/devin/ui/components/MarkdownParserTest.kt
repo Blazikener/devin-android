@@ -62,4 +62,15 @@ class MarkdownParserTest {
             MarkdownParser.parse("first\n\nsecond"),
         )
     }
+
+    @Test
+    fun plainStripsMarkdownForNotifications() {
+        assertEquals(
+            "I've received your request: Please continue\n" +
+                "Use ApiException\n" +
+                "• Retry the docs\n" +
+                "val x = 1",
+            MarkdownParser.plain("I've received your request: **Please continue**\n\nUse `ApiException`\n- Retry [the docs](https://x.y)\n```kotlin\nval x = 1\n```"),
+        )
+    }
 }
