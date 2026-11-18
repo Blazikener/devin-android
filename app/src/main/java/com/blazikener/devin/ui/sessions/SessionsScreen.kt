@@ -83,7 +83,7 @@ import kotlinx.coroutines.launch
 fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
-    val vm: SessionsViewModel = viewModel { SessionsViewModel(g) { SessionWatcher.markSeen(ctx, it) } }
+    val vm: SessionsViewModel = viewModel { val app = ctx.applicationContext; SessionsViewModel(g) { SessionWatcher.markSeen(app, it) } }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val account by g.auth.account.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
