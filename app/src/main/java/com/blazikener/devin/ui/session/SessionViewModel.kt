@@ -168,6 +168,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             _ui.update { it.copy(session = s) }
             refresh()
         }.onFailure { e ->
+            if (draft().isBlank()) saveDraft(p.text)
             _ui.update { u -> u.copy(pending = u.pending.map { if (it.localId == p.localId) it.copy(failed = true, error = e.message) else it }) }
         }
     }
