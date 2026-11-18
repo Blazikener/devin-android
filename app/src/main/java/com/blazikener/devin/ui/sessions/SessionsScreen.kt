@@ -111,14 +111,18 @@ fun SessionsScreen(
     val account by g.auth.account.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var searching by rememberSaveable { mutableStateOf(initialSearch || ui.query.isNotEmpty()) }
+    var searching by rememberSaveable { mutableStateOf(ui.query.isNotEmpty()) }
+    var applied by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     LaunchedEffect(vm, initialFilter, initialSearch) {
-        initialFilter?.let(vm::setFilter)
-        if (initialSearch) searching = true
+        if (!applied) {
+            initialFilter?.let(vm::setFilter)
+            if (initialSearch) searching = true
+            applied = true
+        }
     }
 
     // Live refresh while visible; also feeds the notifier so background checks don't re-alert.

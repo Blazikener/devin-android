@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -309,7 +310,7 @@ fun HomeScreen(
                             Row(
                                 Modifier.clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                    .clickable { showModePicker = true }
+                                    .clickable(role = Role.Button, onClickLabel = "Change mode") { showModePicker = true }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
