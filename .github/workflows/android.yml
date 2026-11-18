@@ -8,15 +8,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease
+      - name: Prepare latest release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cp app/build/outputs/apk/release/app-release.apk devin-android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: devin-android-apks
           path: app/build/outputs/apk/**/*.apk
+      - name: Move latest tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: git tag -f latest && git push -f origin latest
+      - name: Publish latest GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Devin for Android (latest)
+          prerelease: false
+          make_latest: true
+          files: devin-android.apk
+          body: "Built from main@${{ github.sha }}. To install, enable installs from unknown sources and open the APK."

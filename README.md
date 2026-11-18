@@ -20,6 +20,8 @@ In Devin, open **Settings → Service users** and create a service-user key begi
 
 Download the APK from the GitHub Actions `devin-android-apks` artifact or a release. Enable installation from unknown sources for the app used to open the APK, then install it.
 
+Latest main APK: [Download devin-android.apk](https://github.com/Blazikener/devin-android/releases/latest/download/devin-android.apk).
+
 ## Build from source
 
 Install Android SDK and JDK 17, then run:
