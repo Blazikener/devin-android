@@ -4,14 +4,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.combinedClickable
@@ -33,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -74,8 +72,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,7 +87,6 @@ import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.EmptyState
-import com.blazikener.devin.ui.components.DevinOrb
 import com.blazikener.devin.ui.components.StatusPill
 import com.blazikener.devin.ui.components.openUrl
 import com.blazikener.devin.ui.components.relativeTime
@@ -99,7 +96,14 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -> Unit) {
+fun SessionsScreen(
+    onOpen: (String) -> Unit,
+    onNew: () -> Unit,
+    onSettings: () -> Unit,
+    onBack: () -> Unit,
+    initialFilter: SessionFilter?,
+    initialSearch: Boolean,
+) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val vm: SessionsViewModel = viewModel { val app = ctx.applicationContext; SessionsViewModel(g) { SessionWatcher.markSeen(app, it) } }
@@ -108,10 +112,18 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var searching by rememberSaveable { mutableStateOf(ui.query.isNotEmpty()) }
+    var applied by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val showOverview = LocalConfiguration.current.screenHeightDp >= 600
+
+    LaunchedEffect(vm, initialFilter, initialSearch) {
+        if (!applied) {
+            initialFilter?.let(vm::setFilter)
+            if (initialSearch) searching = true
+            applied = true
+        }
+    }
 
     // Live refresh while visible; also feeds the notifier so background checks don't re-alert.
     LaunchedEffect(Unit) {
@@ -152,6 +164,11 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
                         Text("YOUR WORKSPACE", style = MaterialTheme.typography.labelSmall, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
                         Icon(if (searching) Icons.Outlined.Close else Icons.Outlined.Search, contentDescription = if (searching) "Close search" else "Search")
@@ -166,7 +183,6 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
         snackbarHost = { SnackbarHost(snack) },
     ) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().imePadding()) {
-            if (!searching && showOverview) WorkspaceOverview(ui.workingCount, ui.needsYouCount)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -256,24 +272,6 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
     }
 }
 
-@Composable
-private fun WorkspaceOverview(working: Int, needsYou: Int) {
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceContainerLow)))
-            .padding(start = 20.dp, top = 18.dp, bottom = 18.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text("Your work,\nin motion.", style = MaterialTheme.typography.headlineMedium)
-            Text("$working working  ·  $needsYou need you", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        // Static here: movement belongs to state changes, not a constantly moving inbox.
-        DevinOrb(Modifier.size(108.dp))
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
@@ -286,8 +284,15 @@ private fun SessionRow(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.98f else 1f, spring(stiffness = 650f), label = "session press")
+    val tilt by animateFloatAsState(if (pressed) 1f else 0f, spring(stiffness = 650f), label = "session tilt")
     Surface(
-        modifier.graphicsLayer { scaleX = scale; scaleY = scale }, shape = RoundedCornerShape(20.dp),
+        modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            rotationX = tilt * 4f
+            cameraDistance = 16f * density
+            transformOrigin = TransformOrigin(0.5f, 1f)
+        }, shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, if (s.state.needsAttention) s.state.color().copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) { Box {

@@ -26,7 +26,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
+import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.ui.create.CreateScreen
+import com.blazikener.devin.ui.home.HomeScreen
 import com.blazikener.devin.ui.login.LoginScreen
 import com.blazikener.devin.ui.session.SessionScreen
 import com.blazikener.devin.ui.sessions.SessionsScreen
@@ -54,19 +56,18 @@ class MainActivity : ComponentActivity() {
             val account by g.auth.account.collectAsStateWithLifecycle()
             DevinTheme(settings.theme, settings.dynamicColor) {
                 val nav = rememberNavController()
-                val start = remember { if (account == null) "login" else "sessions" }
+                val start = remember { if (account == null) "login" else "home" }
                 val launch by pending
                 LaunchedEffect(launch, account) {
                     val l = launch ?: return@LaunchedEffect
                     if (account == null) return@LaunchedEffect
                     pending.value = null
-                    // Links, shares and shortcuts start from the session list so Back leads home and
-                    // repeated launches don't pile up screens; the new-session form keeps its draft.
+                    // Links, shares and shortcuts return to home on Back and repeated launches don't pile up screens.
                     val route = when (l) {
                         is Launch.OpenSession -> "session/${l.id}"
                         is Launch.NewSession -> "create?prompt=" + enc(l.prompt.orEmpty())
                     }
-                    nav.navigate(route) { popUpTo("sessions") }
+                    nav.navigate(route) { popUpTo("home") }
                 }
                 NavHost(
                     nav, startDestination = start,
@@ -79,15 +80,37 @@ class MainActivity : ComponentActivity() {
                         LoginScreen(onSignedIn = {
                             SessionWatcher.schedule(this@MainActivity, settings.pollMinutes)
                             askNotifications()
-                            nav.navigate("sessions") { popUpTo("login") { inclusive = true } }
+                            nav.navigate("home") { popUpTo("login") { inclusive = true } }
                         })
                     }
-                    composable("sessions") {
+                    composable("home") {
                         LaunchedEffect(Unit) { askNotifications() }
+                        HomeScreen(
+                            onOpen = { nav.navigate("session/$it") },
+                            onSessions = { filter, search ->
+                                nav.navigate("sessions?filter=${filter?.name.orEmpty()}&search=$search")
+                            },
+                            onNewForm = { nav.navigate("create?prompt=${enc(it)}") },
+                            onSettings = { nav.navigate("settings") },
+                        )
+                    }
+                    composable(
+                        "sessions?filter={filter}&search={search}",
+                        arguments = listOf(
+                            navArgument("filter") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("search") { type = NavType.BoolType; defaultValue = false },
+                        ),
+                    ) { e ->
+                        val initialFilter = e.arguments?.getString("filter").orEmpty()
+                            .takeIf(String::isNotEmpty)?.let { value -> SessionFilter.entries.firstOrNull { it.name == value } }
+                        val initialSearch = e.arguments?.getBoolean("search") ?: false
                         SessionsScreen(
                             onOpen = { nav.navigate("session/$it") },
                             onNew = { nav.navigate("create?prompt=") },
                             onSettings = { nav.navigate("settings") },
+                            onBack = { nav.back() },
+                            initialFilter = initialFilter,
+                            initialSearch = initialSearch,
                         )
                     }
                     composable("session/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
@@ -97,7 +120,7 @@ class MainActivity : ComponentActivity() {
                     composable("create?prompt={prompt}", arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
                         CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
-                            nav.navigate("session/$id") { popUpTo("sessions") }
+                            nav.navigate("session/$id") { popUpTo("home") }
                         })
                     }
                     composable("settings") {
@@ -121,7 +144,7 @@ class MainActivity : ComponentActivity() {
         outState.putBoolean(LAUNCH_PENDING, pending.value != null)
     }
 
-    private fun NavHostController.back() { if (!popBackStack()) navigate("sessions") }
+    private fun NavHostController.back() { if (!popBackStack()) navigate("home") }
 
     private fun askNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && !Notifications.canPost(this)) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
