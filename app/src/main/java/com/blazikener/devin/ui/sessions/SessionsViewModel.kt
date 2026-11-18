@@ -86,11 +86,7 @@ class SessionsViewModel(private val g: AppGraph) : ViewModel() {
                     _ui.update { it.copy(archived = page.items, hasMore = page.hasNextPage, loading = false, error = null, offline = false) }
                 } else {
                     cursor = page.endCursor
-                    // Keep already-loaded older pages, replacing anything that came back fresh.
-                    val fresh = page.items.associateBy { it.id }
-                    val older = if (page.hasNextPage && _ui.value.all.size > page.items.size) _ui.value.all.filter { it.id !in fresh } else emptyList()
-                    val merged = page.items + older
-                    _ui.update { it.copy(all = merged, hasMore = page.hasNextPage, loading = false, error = null, offline = false) }
+                    _ui.update { it.copy(all = page.items, hasMore = page.hasNextPage, loading = false, error = null, offline = false) }
                     g.cache.putSessions(cacheKey(), page.items)
                 }
             }
