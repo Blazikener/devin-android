@@ -73,4 +73,39 @@ class MarkdownParserTest {
             MarkdownParser.plain("I've received your request: **Please continue**\n\nUse `ApiException`\n- Retry [the docs](https://x.y)\n```kotlin\nval x = 1\n```"),
         )
     }
+
+    @Test
+    fun parsesTables() {
+        assertEquals(
+            listOf(
+                MdBlock.Paragraph("intro"),
+                MdBlock.Table(listOf("A", "B"), listOf(listOf("1", "`x`"), listOf("2", ""))),
+                MdBlock.Paragraph("after"),
+            ),
+            MarkdownParser.parse("intro\n| A | B |\n| --- | :-: |\n| 1 | `x` |\n| 2 |\n\nafter"),
+        )
+    }
+
+    @Test
+    fun escapedPipesStayInCell() {
+        assertEquals(
+            listOf(MdBlock.Table(listOf("Op", "Meaning"), listOf(listOf("a | b", "or")))),
+            MarkdownParser.parse("| Op | Meaning |\n|---|---|\n| a \\| b | or |"),
+        )
+    }
+
+    @Test
+    fun pipeLineWithoutSeparatorIsParagraph() {
+        assertEquals(listOf(MdBlock.Paragraph("| not a table |")), MarkdownParser.parse("| not a table |"))
+    }
+
+    @Test
+    fun joinsConsecutiveQuoteLines() {
+        assertEquals(listOf(MdBlock.Quote("one\ntwo")), MarkdownParser.parse("> one\n> two"))
+    }
+
+    @Test
+    fun plainFlattensTables() {
+        assertEquals("A · B\n1 · x", MarkdownParser.plain("| A | B |\n|---|---|\n| 1 | `x` |"))
+    }
 }
