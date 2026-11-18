@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_session"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new"
+        android:shortcutShortLabel="@string/shortcut_new"
+        android:shortcutLongLabel="@string/shortcut_new_long">
+        <intent
+            android:action="com.blazikener.devin.NEW_SESSION"
+            android:targetPackage="com.blazikener.devin"
+            android:targetClass="com.blazikener.devin.MainActivity" />
+    </shortcut>
+</shortcuts>

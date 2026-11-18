@@ -1,0 +1,136 @@
+package com.blazikener.devin.ui.settings
+
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.blazikener.devin.BuildConfig
+import com.blazikener.devin.data.DEVIN_MODES
+import com.blazikener.devin.data.ThemeMode
+import com.blazikener.devin.graph
+import com.blazikener.devin.notify.Notifications
+import com.blazikener.devin.notify.SessionWatcher
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val s by g.settings.settings.collectAsStateWithLifecycle()
+    val account by g.auth.account.collectAsStateWithLifecycle()
+    var confirmOut by remember { mutableStateOf(false) }
+    var canNotify by remember { mutableStateOf(Notifications.canPost(ctx)) }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canNotify = it }
+
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } })
+    }) { pad ->
+        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Section("Account")
+            Text(account?.name ?: "", style = MaterialTheme.typography.titleMedium)
+            Text("Org ${account?.orgId ?: ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (account?.baseUrl != null && account?.baseUrl != "https://api.devin.ai") Text(account!!.baseUrl, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { confirmOut = true }) { Text("Sign out") }
+            HorizontalDivider()
+
+            Section("Notifications")
+            if (!canNotify && Build.VERSION.SDK_INT >= 33) OutlinedButton(onClick = { perm.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Allow notifications") }
+            Toggle("When Devin needs you", s.notifyNeedsYou) { v -> g.settings.update { it.copy(notifyNeedsYou = v) } }
+            Toggle("When a session finishes or errors", s.notifyFinished) { v -> g.settings.update { it.copy(notifyFinished = v) } }
+            Toggle("Every new Devin message", s.notifyMessages) { v -> g.settings.update { it.copy(notifyMessages = v) } }
+            Text("Background check interval", style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 30, 60).forEach { m ->
+                    FilterChip(selected = s.pollMinutes == m, onClick = {
+                        g.settings.update { it.copy(pollMinutes = m) }; SessionWatcher.schedule(ctx, m)
+                    }, label = { Text("$m min") })
+                }
+            }
+            Text("While the app is open, sessions refresh every few seconds.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider()
+
+            Section("New sessions")
+            Text("Default mode", style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DEVIN_MODES.forEach { (v, label) -> FilterChip(selected = s.defaultMode == v, onClick = { g.settings.update { it.copy(defaultMode = v) } }, label = { Text(label) }) }
+            }
+            OutlinedTextField(
+                value = s.defaultAcuLimit?.toString() ?: "", onValueChange = { t -> g.settings.update { it.copy(defaultAcuLimit = t.filter(Char::isDigit).toIntOrNull()) } },
+                label = { Text("Default max ACUs") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            OutlinedTextField(
+                value = s.createAsUserId ?: "", onValueChange = { t -> g.settings.update { it.copy(createAsUserId = t.trim().ifEmpty { null }) } },
+                label = { Text("Act as user ID (service-user keys)") }, placeholder = { Text("user-…") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                supportingText = { Text("Sessions and messages are attributed to this user. Needs the impersonation permission on the key.") },
+            )
+            HorizontalDivider()
+
+            Section("Appearance & input")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ThemeMode.entries.forEach { m -> FilterChip(selected = s.theme == m, onClick = { g.settings.update { it.copy(theme = m) } }, label = { Text(m.name) }) }
+            }
+            if (Build.VERSION.SDK_INT >= 31) Toggle("Use wallpaper colors", s.dynamicColor) { v -> g.settings.update { it.copy(dynamicColor = v) } }
+            Toggle("Enter key sends (hardware keyboards)", s.enterToSend) { v -> g.settings.update { it.copy(enterToSend = v) } }
+            HorizontalDivider()
+            Text("Devin for Android ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    if (confirmOut) AlertDialog(
+        onDismissRequest = { confirmOut = false },
+        title = { Text("Sign out?") }, text = { Text("Your API key and cached sessions are removed from this device.") },
+        confirmButton = { TextButton(onClick = {
+            confirmOut = false; SessionWatcher.cancel(ctx); g.auth.clear(); g.cache.clear()
+            ctx.getSharedPreferences("watcher", 0).edit().clear().apply(); onSignedOut()
+        }) { Text("Sign out") } },
+        dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
+    )
+}
+
+@Composable private fun Section(t: String) = Text(t, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+
+@Composable
+private fun Toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Switch(checked = value, onCheckedChange = onChange)
+    }
+}

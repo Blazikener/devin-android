@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Devin</string>
+    <string name="shortcut_new">New session</string>
+    <string name="shortcut_new_long">Start a new Devin session</string>
+</resources>
