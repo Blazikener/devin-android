@@ -78,8 +78,14 @@ class SessionsViewModel(private val g: AppGraph) : ViewModel() {
     }
 
     suspend fun refresh() {
-        val archived = _ui.value.filter == SessionFilter.Archived
-        runCatching { g.api.listSessions(first = 50, archived = archived, userIds = userFilter()) }
+        val current = _ui.value
+        val archived = current.filter == SessionFilter.Archived
+        val first = if (archived) {
+            maxOf(50, current.archived.size).coerceAtMost(200)
+        } else {
+            maxOf(50, current.all.size).coerceAtMost(200)
+        }
+        runCatching { g.api.listSessions(first = first, archived = archived, userIds = userFilter()) }
             .onSuccess { page ->
                 if (archived) {
                     archivedCursor = page.endCursor
