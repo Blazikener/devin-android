@@ -1,7 +1,11 @@
 package com.blazikener.devin.ui.settings
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -39,9 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.blazikener.devin.BuildConfig
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.ThemeMode
@@ -58,7 +66,15 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val account by g.auth.account.collectAsStateWithLifecycle()
     var confirmOut by remember { mutableStateOf(false) }
     var canNotify by remember { mutableStateOf(Notifications.canPost(ctx)) }
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canNotify = it }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        canNotify = granted
+        val activity = ctx as? Activity
+        if (!granted && activity != null && !activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) openNotificationSettings(ctx)
+    }
+    LifecycleResumeEffect(Unit) {
+        canNotify = Notifications.canPost(ctx)
+        onPauseOrDispose {}
+    }
 
     Scaffold(topBar = {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } })
@@ -72,7 +88,14 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             HorizontalDivider()
 
             Section("Notifications")
-            if (!canNotify && Build.VERSION.SDK_INT >= 33) OutlinedButton(onClick = { perm.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Allow notifications") }
+            if (!canNotify) {
+                Text("Notifications are off for this app, so you won't hear when Devin needs you.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                OutlinedButton(onClick = {
+                    val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) perm.launch(Manifest.permission.POST_NOTIFICATIONS) else openNotificationSettings(ctx)
+                }) { Text("Allow notifications") }
+            }
             Toggle("When Devin needs you", s.notifyNeedsYou) { v -> g.settings.update { it.copy(notifyNeedsYou = v) } }
             Toggle("When a session finishes or errors", s.notifyFinished) { v -> g.settings.update { it.copy(notifyFinished = v) } }
             Toggle("Every new Devin message", s.notifyMessages) { v -> g.settings.update { it.copy(notifyMessages = v) } }
@@ -93,8 +116,9 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 DEVIN_MODES.forEach { (v, label) -> FilterChip(selected = s.defaultMode == v, onClick = { g.settings.update { it.copy(defaultMode = v) } }, label = { Text(label) }) }
             }
             OutlinedTextField(
-                value = s.defaultAcuLimit?.toString() ?: "", onValueChange = { t -> g.settings.update { it.copy(defaultAcuLimit = t.filter(Char::isDigit).toIntOrNull()) } },
+                value = s.defaultAcuLimit?.toString() ?: "", onValueChange = { t -> g.settings.update { it.copy(defaultAcuLimit = t.filter(Char::isDigit).take(6).toIntOrNull()?.takeIf { n -> n > 0 }) } },
                 label = { Text("Default max ACUs") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                supportingText = { Text("Leave empty for no limit.") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
             OutlinedTextField(
@@ -129,8 +153,17 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
 
 @Composable
 private fun Toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().toggleable(value = value, role = Role.Switch, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(label, Modifier.weight(1f))
-        Switch(checked = value, onCheckedChange = onChange)
+        Switch(checked = value, onCheckedChange = null)
     }
+}
+
+private fun openNotificationSettings(ctx: android.content.Context) {
+    val intent = if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+    else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", ctx.packageName, null))
+    ctx.startActivity(intent)
 }

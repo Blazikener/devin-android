@@ -43,8 +43,10 @@ object Notifications {
     }
 
     fun canPost(ctx: Context): Boolean =
-        Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        NotificationManagerCompat.from(ctx).areNotificationsEnabled() && (
+            Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            )
 
     private fun notificationId(sessionId: String) = sessionId.hashCode()
 
