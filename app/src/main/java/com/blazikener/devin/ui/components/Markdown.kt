@@ -63,8 +63,11 @@ object MarkdownParser {
     private val heading = Regex("""^(#{1,6})\s+(.*)$""")
     private val tableSeparator = Regex("""^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$""")
 
+    private val unescapedPipe = Regex("""(?<!\\)\|""")
+
     private fun cells(row: String): List<String> =
-        row.trim().removePrefix("|").removeSuffix("|").split('|').map { it.trim() }
+        row.trim().removePrefix("|").let { if (it.endsWith("|") && !it.endsWith("\\|")) it.dropLast(1) else it }
+            .split(unescapedPipe).map { it.trim().replace("\\|", "|") }
 
     fun parse(src: String): List<MdBlock> {
         val out = mutableListOf<MdBlock>()

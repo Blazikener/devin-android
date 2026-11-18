@@ -76,6 +76,14 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun escapedPipesStayInCell() {
+        assertEquals(
+            listOf(MdBlock.Table(listOf("Op", "Meaning"), listOf(listOf("a | b", "or")))),
+            MarkdownParser.parse("| Op | Meaning |\n|---|---|\n| a \\| b | or |"),
+        )
+    }
+
+    @Test
     fun pipeLineWithoutSeparatorIsParagraph() {
         assertEquals(listOf(MdBlock.Paragraph("| not a table |")), MarkdownParser.parse("| not a table |"))
     }
