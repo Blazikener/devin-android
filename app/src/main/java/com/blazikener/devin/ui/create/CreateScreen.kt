@@ -1,5 +1,6 @@
 package com.blazikener.devin.ui.create
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +78,7 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     var acu by rememberSaveable { mutableStateOf(settings.defaultAcuLimit?.toString() ?: "") }
     var mode by rememberSaveable { mutableStateOf(settings.defaultMode) }
     var busy by remember { mutableStateOf(false) }
+    var created by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var repos by remember { mutableStateOf<List<Repository>>(emptyList()) }
     var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
@@ -85,6 +87,12 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     var repoQuery by remember { mutableStateOf("") }
     val uploads = remember { mutableStateListOf<Upload>() }
     var uploading by remember { mutableStateOf(0) }
+
+    fun leave() {
+        if (!created) g.settings.saveDraft("__new__", prompt)
+        onBack()
+    }
+    BackHandler { leave() }
 
     LaunchedEffect(Unit) {
         launch { runCatching { g.api.repositories() }.onSuccess { repos = it.items } }
@@ -123,7 +131,11 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                         devinMode = mode,
                     )
                 )
-            }.onSuccess { g.settings.saveDraft("__new__", ""); onCreated(it.id) }
+            }.onSuccess {
+                created = true
+                g.settings.saveDraft("__new__", "")
+                onCreated(it.id)
+            }
                 .onFailure { error = it.message; busy = false }
         }
     }
@@ -131,7 +143,7 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("New session") },
-            navigationIcon = { IconButton(onClick = { g.settings.saveDraft("__new__", prompt); onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = ::leave) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
         )
     }) { pad ->
         Column(
