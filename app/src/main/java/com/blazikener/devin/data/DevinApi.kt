@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -25,6 +26,12 @@ val json = Json {
     ignoreUnknownKeys = true
     explicitNulls = false
     coerceInputValues = true
+}
+
+internal fun sameOrigin(a: String, b: String): Boolean {
+    val first = a.toHttpUrlOrNull() ?: return false
+    val second = b.toHttpUrlOrNull() ?: return false
+    return first.scheme == second.scheme && first.host == second.host && first.port == second.port
 }
 
 /** Thin client for the public Devin v3 API (https://docs.devin.ai/api-reference). */
@@ -152,7 +159,7 @@ class DevinApi(
     /** Downloads an auth-gated attachment. */
     suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(url).apply {
-            if (url.startsWith(baseUrl().trimEnd('/'))) auth()
+            if (sameOrigin(url, baseUrl())) auth()
         }.build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw ApiException(resp.code, "Download failed (${resp.code})")

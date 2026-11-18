@@ -134,4 +134,12 @@ class DevinApiTest {
         assertTrue(contentType.orEmpty().startsWith("multipart/form-data;"))
         assertTrue(requestBody.toString(Charsets.UTF_8).contains("name=\"file\"; filename=\"note.txt\""))
     }
+
+    @Test
+    fun sameOriginRequiresMatchingSchemeHostAndPort() {
+        assertTrue(sameOrigin("https://api.devin.ai/v3", "https://api.devin.ai"))
+        assertFalse(sameOrigin("https://api.devin.ai.attacker.example/x", "https://api.devin.ai"))
+        assertFalse(sameOrigin("https://api.devin.ai:8443/x", "https://api.devin.ai"))
+        assertFalse(sameOrigin("http://api.devin.ai/x", "https://api.devin.ai"))
+    }
 }
