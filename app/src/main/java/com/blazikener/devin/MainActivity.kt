@@ -40,7 +40,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        pending.value = parse(intent)
+        // On recreation (rotation, process death) the nav back stack already holds the launch.
+        if (savedInstanceState == null) pending.value = parse(intent)
         setContent {
             val g = graph
             val settings by g.settings.settings.collectAsStateWithLifecycle()
