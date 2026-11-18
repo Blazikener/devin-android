@@ -42,6 +42,7 @@ data class AppSettings(
     val defaultAcuLimit: Int? = null,
     val createAsUserId: String? = null,
     val enterToSend: Boolean = false,
+    val webOrg: String? = null,
 )
 
 class SettingsStore(context: Context) {
@@ -63,6 +64,7 @@ class SettingsStore(context: Context) {
             .putInt("default_acu", s.defaultAcuLimit ?: -1)
             .putString("create_as", s.createAsUserId)
             .putBoolean("enter_to_send", s.enterToSend)
+            .putString("web_org", s.webOrg)
             .apply()
         _settings.value = s
     }
@@ -78,6 +80,7 @@ class SettingsStore(context: Context) {
         defaultAcuLimit = prefs.getInt("default_acu", -1).takeIf { it > 0 },
         createAsUserId = prefs.getString("create_as", null)?.takeIf { it.isNotBlank() },
         enterToSend = prefs.getBoolean("enter_to_send", false),
+        webOrg = prefs.getString("web_org", null)?.takeIf { it.isNotBlank() },
     )
 
     // Per-session drafts survive process death so a half-written reply is never lost.

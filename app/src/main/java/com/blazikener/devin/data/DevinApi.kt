@@ -156,19 +156,6 @@ class DevinApi(
     suspend fun playbooks(first: Int = 200, after: String? = null): Page<Playbook> =
         json.decodeFromString(get("/v3/organizations/${org()}/playbooks", listOf("first" to "$first", "include_enterprise" to "true", "after" to after)))
 
-    suspend fun listBots(first: Int = 100, after: String? = null): Page<Bot> =
-        json.decodeFromString(get("/v3beta1/organizations/${org()}/bots", listOf("first" to "$first", "after" to after)))
-
-    suspend fun bot(id: String): Bot = json.decodeFromString(get("/v3beta1/organizations/${org()}/bots/$id"))
-
-    suspend fun botSessions(id: String, first: Int = 50, after: String? = null): Page<Session> =
-        json.decodeFromString(get("/v3beta1/organizations/${org()}/bots/$id/sessions", listOf("first" to "$first", "after" to after)))
-
-    /** Sends to the Bot's chat. The reply arrives in its conversation session, not in this response. */
-    suspend fun sendBotMessage(id: String, req: BotMessageRequest) {
-        post("/v3beta1/organizations/${org()}/bots/$id/messages", json.encodeToString(BotMessageRequest.serializer(), req))
-    }
-
     /** Downloads an auth-gated attachment. */
     suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(url).apply {

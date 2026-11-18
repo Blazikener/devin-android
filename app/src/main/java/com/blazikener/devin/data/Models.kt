@@ -172,28 +172,3 @@ val DEVIN_MODES = listOf(
     "lite" to "Lite",
     "ultra" to "Ultra",
 )
-
-/** A Devin Bot: a persistent Devin with its own chat that starts and monitors sessions. */
-@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-@Serializable
-data class Bot(
-    @SerialName("bot_id") @kotlinx.serialization.json.JsonNames("id") val id: String,
-    @kotlinx.serialization.json.JsonNames("display_name") val name: String = "",
-    val description: String? = null,
-    val url: String? = null,
-    val status: String? = null,
-    @SerialName("session_id")
-    @kotlinx.serialization.json.JsonNames("conversation_session_id", "current_session_id", "devin_id")
-    val conversationSessionId: String? = null,
-    @SerialName("created_at") val createdAt: Long = 0,
-    @SerialName("updated_at") val updatedAt: Long = 0,
-    @SerialName("is_archived") val isArchived: Boolean = false,
-) {
-    val displayName: String get() = name.ifBlank { "Unnamed Bot" }
-}
-
-@Serializable
-data class BotMessageRequest(
-    val message: String,
-    @SerialName("message_as_user_id") val messageAsUserId: String? = null,
-)

@@ -1,6 +1,5 @@
 package com.blazikener.devin
 
-import com.blazikener.devin.ui.bots.BotScreen
 import com.blazikener.devin.ui.bots.BotsScreen
 import android.Manifest
 import android.content.Intent
@@ -98,10 +97,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable("bots") {
-                        BotsScreen(onBack = { nav.back() }, onOpen = { nav.navigate("bot/$it") })
-                    }
-                    composable("bot/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
-                        BotScreen(e.arguments!!.getString("id")!!, onBack = { nav.back() }, onOpenSession = { nav.navigate("session/$it") })
+                        BotsScreen(onBack = { nav.back() }, onOpenSession = { nav.navigate("session/$it") })
                     }
                     composable(
                         "sessions?filter={filter}&search={search}",

@@ -288,7 +288,7 @@ private fun SessionContext(
 }
 
 @Composable
-internal fun MessageBubble(m: SessionMessage) {
+private fun MessageBubble(m: SessionMessage) {
     if (m.fromDevin) {
         Column(Modifier.fillMaxWidth()) {
             Text("Devin · ${relativeTime(m.createdAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -332,12 +332,11 @@ private fun WorkingIndicator() {
 @Composable
 fun Composer(
     value: String, onChange: (String) -> Unit, enterToSend: Boolean, canSend: Boolean, hint: String,
-    onAttach: (() -> Unit)?, onSend: () -> Unit, maxHeight: androidx.compose.ui.unit.Dp = 180.dp,
+    onAttach: () -> Unit, onSend: () -> Unit, maxHeight: androidx.compose.ui.unit.Dp = 180.dp,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 2.dp, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
     Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(10.dp), verticalAlignment = Alignment.Bottom) {
-        if (onAttach != null) IconButton(onClick = onAttach) { Icon(Icons.Outlined.AttachFile, "Attach files") }
-        else Spacer(Modifier.width(8.dp))
+        IconButton(onClick = onAttach) { Icon(Icons.Outlined.AttachFile, "Attach files") }
         OutlinedTextField(
             value = value, onValueChange = onChange, placeholder = { Text(hint) },
             modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = maxHeight).testTag("composer").onPreviewKeyEvent { e ->
