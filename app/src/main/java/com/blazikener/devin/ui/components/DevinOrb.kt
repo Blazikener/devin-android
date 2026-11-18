@@ -20,8 +20,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 
 /** A vector-drawn dimensional identity; no downloaded art, video, or rendering engine. */
 @Composable
-fun DevinOrb(modifier: Modifier = Modifier, animated: Boolean = false) {
-    val turn = if (animated) {
+fun DevinOrb(modifier: Modifier = Modifier, animated: Boolean = false, spin: Boolean = false) {
+    val turn = if (spin) {
+        val transition = rememberInfiniteTransition(label = "orb spin")
+        val angle by transition.animateFloat(
+            0f, 360f, infiniteRepeatable(tween(3600, easing = LinearEasing), RepeatMode.Restart), label = "orb spin",
+        )
+        angle
+    } else if (animated) {
         val transition = rememberInfiniteTransition(label = "orb")
         val angle by transition.animateFloat(
             -16f, 16f, infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Reverse), label = "orb tilt",
