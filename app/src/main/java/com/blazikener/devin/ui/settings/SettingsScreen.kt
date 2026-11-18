@@ -2,10 +2,15 @@ package com.blazikener.devin.ui.settings
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.verify.domain.DomainVerificationManager
+import android.content.pm.verify.domain.DomainVerificationUserState
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -129,6 +134,21 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             )
             HorizontalDivider()
 
+            if (Build.VERSION.SDK_INT >= 31) {
+                var linksOn by remember { mutableStateOf(opensDevinLinks(ctx)) }
+                LifecycleResumeEffect(Unit) { linksOn = opensDevinLinks(ctx); onPauseOrDispose {} }
+                Section("Links")
+                Text(
+                    if (linksOn) "app.devin.ai session links open in this app."
+                    else "app.devin.ai session links open in the browser. Add the link under Open by default to open them here.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(onClick = {
+                    ctx.startActivity(Intent(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+                }) { Text("Open by default settings") }
+                HorizontalDivider()
+            }
+
             Section("Appearance & input")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ThemeMode.entries.forEach { m -> FilterChip(selected = s.theme == m, onClick = { g.settings.update { it.copy(theme = m) } }, label = { Text(m.name) }) }
@@ -148,6 +168,13 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
         }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
     )
+}
+
+@RequiresApi(31)
+private fun opensDevinLinks(ctx: Context): Boolean {
+    val state = ctx.getSystemService(DomainVerificationManager::class.java)
+        ?.getDomainVerificationUserState(ctx.packageName) ?: return false
+    return state.isLinkHandlingAllowed && (state.hostToStateMap["app.devin.ai"] ?: DomainVerificationUserState.DOMAIN_STATE_NONE) != DomainVerificationUserState.DOMAIN_STATE_NONE
 }
 
 @Composable private fun Section(t: String) = Text(t, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
