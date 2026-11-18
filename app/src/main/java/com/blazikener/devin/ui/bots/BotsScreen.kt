@@ -86,7 +86,7 @@ fun BotsScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
             when {
                 ui.loading && ui.bots.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                 ui.error != null && ui.bots.isEmpty() -> Message(ui.error!!, "Retry") { vm.refresh() }
-                ui.bots.isEmpty() -> Message("No Bots yet. Create one in Devin on the web, then pull to refresh.")
+                ui.bots.isEmpty() -> Message("No Bots yet. Create one in Devin on the web, then refresh.", "Refresh") { vm.refresh() }
                 else -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
                     items(ui.bots, key = { it.id }) { BotRow(it) { onOpen(it.id) } }
                 }
