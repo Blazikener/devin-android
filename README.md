@@ -38,7 +38,7 @@ From the repository root:
 python3 tools/mock_devin_api.py
 ```
 
-In the app's **Advanced** sign-in settings, set the base URL to `http://10.0.2.2:8787` and the API key to `cog_mock`.
+In the app's **Advanced** sign-in settings, set the base URL to `http://10.0.2.2:8787` and the API key to `cog_mock`. Send `/markdown` in any session to get a long Markdown reply (table, code, lists, quote) for testing the chat renderer.
 
 ## Known limits
 
