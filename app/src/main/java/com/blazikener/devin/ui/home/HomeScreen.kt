@@ -136,6 +136,11 @@ fun HomeScreen(
     var greetingVisible by remember { mutableStateOf(false) }
     var statusVisible by remember { mutableStateOf(false) }
 
+    fun updatePrompt(value: String) {
+        prompt = value
+        error = null
+    }
+
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
@@ -293,95 +298,54 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            BasicTextField(
-                                value = prompt,
-                                onValueChange = { prompt = it; error = null },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { send() }),
-                                minLines = 1,
-                                maxLines = if (compactHeight) 3 else 6,
-                                decorationBox = { inner ->
-                                    Box {
-                                        if (prompt.isEmpty()) {
-                                            Text(
-                                                "What should Devin build?",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        inner()
-                                    }
-                                },
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        val text = prompt
-                                        prompt = ""
-                                        onNewForm(text)
-                                    },
-                                    modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceContainerLow, CircleShape),
-                                ) {
-                                    Icon(Icons.Outlined.Add, contentDescription = "More options")
-                                }
-                                Spacer(Modifier.width(8.dp))
-                                val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
-                                Row(
-                                    Modifier.clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                        .clickable(role = Role.Button, onClickLabel = "Change mode") { showModePicker = true }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(modeLabel, style = MaterialTheme.typography.labelLarge)
-                                }
-                                Spacer(Modifier.weight(1f))
-                                val enabled = prompt.isNotBlank() && !busy
-                                val enabledScale by animateFloatAsState(
-                                    targetValue = if (enabled) 1f else 0.85f,
-                                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
-                                    label = "send enabled scale",
+                        if (compactHeight && imeVisible) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                HomePromptField(
+                                    prompt = prompt,
+                                    onPromptChange = ::updatePrompt,
+                                    onSend = ::send,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                    maxLines = 2,
                                 )
-                                val interaction = remember { MutableInteractionSource() }
-                                val pressed by interaction.collectIsPressedAsState()
-                                val pressScale by animateFloatAsState(
-                                    targetValue = if (pressed) 0.92f else 1f,
-                                    animationSpec = spring(dampingRatio = 0.62f, stiffness = 650f),
-                                    label = "send press scale",
+                                HomeSendButton(
+                                    enabled = prompt.isNotBlank() && !busy,
+                                    busy = busy,
+                                    onSend = ::send,
                                 )
-                                IconButton(
-                                    onClick = ::send,
-                                    enabled = enabled,
-                                    interactionSource = interaction,
-                                    modifier = Modifier.size(42.dp).graphicsLayer {
-                                        scaleX = enabledScale * pressScale
-                                        scaleY = enabledScale * pressScale
-                                    }.background(
-                                        if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
-                                        CircleShape,
-                                    ),
-                                ) {
-                                    AnimatedContent(targetState = busy, label = "send busy") { sending ->
-                                        if (sending) {
-                                            androidx.compose.material3.CircularProgressIndicator(
-                                                modifier = Modifier.size(18.dp),
-                                                color = MaterialTheme.colorScheme.surface,
-                                                strokeWidth = 2.dp,
-                                            )
-                                        } else {
-                                            Icon(
-                                                Icons.Filled.ArrowUpward,
-                                                contentDescription = "Send",
-                                                tint = MaterialTheme.colorScheme.surface,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
+                            }
+                        } else {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                HomePromptField(
+                                    prompt = prompt,
+                                    onPromptChange = ::updatePrompt,
+                                    onSend = ::send,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                    maxLines = if (compactHeight) 3 else 6,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                    Spacer(Modifier.width(8.dp))
+                                    val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
+                                    Row(
+                                        Modifier.clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                            .clickable(role = Role.Button, onClickLabel = "Change mode") { showModePicker = true }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(modeLabel, style = MaterialTheme.typography.labelLarge)
                                     }
+                                    Spacer(Modifier.weight(1f))
+                                    HomeSendButton(
+                                        enabled = prompt.isNotBlank() && !busy,
+                                        busy = busy,
+                                        onSend = ::send,
+                                    )
                                 }
                             }
                         }
@@ -411,6 +375,106 @@ fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomePromptField(
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier,
+    maxLines: Int,
+) {
+    BasicTextField(
+        value = prompt,
+        onValueChange = onPromptChange,
+        modifier = modifier,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+        keyboardActions = KeyboardActions(onSend = { onSend() }),
+        minLines = 1,
+        maxLines = maxLines,
+        decorationBox = { inner ->
+            Box {
+                if (prompt.isEmpty()) {
+                    Text(
+                        "What should Devin build?",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                inner()
+            }
+        },
+    )
+}
+
+@Composable
+private fun HomeMoreOptionsButton(
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    onNewForm: (String) -> Unit,
+) {
+    IconButton(
+        onClick = {
+            val text = prompt
+            onPromptChange("")
+            onNewForm(text)
+        },
+        modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceContainerLow, CircleShape),
+    ) {
+        Icon(Icons.Outlined.Add, contentDescription = "More options")
+    }
+}
+
+@Composable
+private fun HomeSendButton(
+    enabled: Boolean,
+    busy: Boolean,
+    onSend: () -> Unit,
+) {
+    val enabledScale by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.85f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
+        label = "send enabled scale",
+    )
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 650f),
+        label = "send press scale",
+    )
+    IconButton(
+        onClick = onSend,
+        enabled = enabled,
+        interactionSource = interaction,
+        modifier = Modifier.size(42.dp).graphicsLayer {
+            scaleX = enabledScale * pressScale
+            scaleY = enabledScale * pressScale
+        }.background(
+            if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+            CircleShape,
+        ),
+    ) {
+        AnimatedContent(targetState = busy, label = "send busy") { sending ->
+            if (sending) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    Icons.Filled.ArrowUpward,
+                    contentDescription = "Send",
+                    tint = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }
