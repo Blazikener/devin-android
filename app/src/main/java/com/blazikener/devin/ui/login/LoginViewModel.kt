@@ -41,6 +41,7 @@ class LoginViewModel(private val g: AppGraph) : ViewModel() {
         if (k.isEmpty()) { _ui.update { it.copy(error = "Paste your API key") }; return }
         val base = s.baseUrl.trim().trimEnd('/')
         val org = s.orgId.trim().ifEmpty { null }
+        apiKeyProblem(k)?.let { msg -> _ui.update { it.copy(error = msg) }; return }
         baseUrlProblem(base)?.let { msg -> _ui.update { it.copy(advanced = true, error = msg) }; return }
         _ui.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {

@@ -35,4 +35,10 @@ class SignInErrorsTest {
         assertNull(baseUrlProblem("https://api.devin.ai"))
         assertNull(baseUrlProblem("http://10.0.2.2:8787"))
     }
+
+    @Test fun keyValidation() {
+        assertNotNull(apiKeyProblem("\u201ccog_abc\u201d"))
+        assertNotNull(apiKeyProblem("cog_a b"))
+        assertNull(apiKeyProblem("cog_abc123"))
+    }
 }
