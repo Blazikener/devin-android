@@ -89,18 +89,24 @@ class SettingsStore(context: Context) {
 
     fun newSessionDraft(defaults: AppSettings = value): NewSessionDraft {
         val fresh = NewSessionDraft(acu = defaults.defaultAcuLimit?.toString() ?: "", mode = defaults.defaultMode)
-        val raw = drafts.getString(NEW_SESSION_KEY, null)?.takeIf { it.isNotBlank() } ?: return fresh
-        // Older versions stored only the prompt as plain text.
-        return runCatching { json.decodeFromString(NewSessionDraft.serializer(), raw) }.getOrElse { fresh.copy(prompt = raw) }
+        drafts.getString(NEW_SESSION_KEY, null)?.let { raw ->
+            runCatching { json.decodeFromString(NewSessionDraft.serializer(), raw) }.getOrNull()?.let { return it }
+        }
+        // Older versions stored only the prompt, as plain text under another key.
+        return fresh.copy(prompt = drafts.getString(LEGACY_NEW_SESSION_KEY, "").orEmpty())
     }
     fun saveNewSessionDraft(d: NewSessionDraft) {
         drafts.edit().apply {
+            remove(LEGACY_NEW_SESSION_KEY)
             if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
         }.apply()
     }
     fun clearDrafts() = drafts.edit().clear().apply()
 
-    private companion object { const val NEW_SESSION_KEY = "__new__" }
+    private companion object {
+        const val NEW_SESSION_KEY = "__new_session__"
+        const val LEGACY_NEW_SESSION_KEY = "__new__"
+    }
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)
     private val _pinned = MutableStateFlow(pins.getStringSet("ids", emptySet())!!.toSet())
