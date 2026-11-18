@@ -101,7 +101,14 @@ class SettingsStore(context: Context) {
             if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
         }.apply()
     }
-    fun clearDrafts() = drafts.edit().clear().apply()
+    fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }
+
+    // Messages that failed to send, as JSON per session, so they can still be retried after leaving the chat.
+    private val outbox = context.getSharedPreferences("outbox", Context.MODE_PRIVATE)
+    fun outbox(sessionId: String): String? = outbox.getString(sessionId, null)
+    fun saveOutbox(sessionId: String, value: String?) {
+        outbox.edit().apply { if (value == null) remove(sessionId) else putString(sessionId, value) }.apply()
+    }
 
     private companion object {
         const val NEW_SESSION_KEY = "__new_session__"

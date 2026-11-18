@@ -6,6 +6,8 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blazikener.devin.AppGraph
+import com.blazikener.devin.data.ApiException
+import com.blazikener.devin.data.json
 import com.blazikener.devin.data.SendMessageRequest
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionAttachment
@@ -22,8 +24,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import java.io.IOException
 
+@Serializable
 data class Pending(val localId: String, val text: String, val attachments: List<String>, val failed: Boolean = false, val error: String? = null)
+/** Connection failures surface as raw OkHttp text ("Failed to connect to /10.0.2.2:8787"); show something a person can act on. */
+internal fun Throwable.userMessage(): String? = when (this) {
+    is ApiException -> message
+    is IOException -> "No connection"
+    else -> message
+}
+
 data class Draft(val name: String, val mime: String, val uri: Uri, val size: Long, val uploadedUrl: String? = null, val uploading: Boolean = true, val error: String? = null)
 
 data class ChatUi(
@@ -46,7 +59,9 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     init {
         viewModelScope.launch {
             val s = g.cache.session(id); val m = g.cache.messages(id)
-            if (s != null || m != null) _ui.update { it.copy(session = s, messages = m.orEmpty(), loading = false) }
+            val unsent = g.settings.outbox(id)?.let { runCatching { json.decodeFromString(ListSerializer(Pending.serializer()), it) }.getOrNull() }.orEmpty()
+            if (s != null || m != null || unsent.isNotEmpty())
+                _ui.update { it.copy(session = s, messages = m.orEmpty(), pending = unsent, loading = s == null && m == null) }
             refresh()
             loadAttachments()
         }
@@ -102,7 +117,7 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             if (fresh.any { it.fromDevin } || oldAtt == 0) loadAttachments()
         }.onFailure { e ->
             if (e is CancellationException) throw e
-            _ui.update { it.copy(loading = false, error = e.message, offline = it.messages.isNotEmpty()) }
+            _ui.update { it.copy(loading = false, error = e.userMessage(), offline = it.messages.isNotEmpty()) }
         }
     }
 
@@ -155,7 +170,15 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
         deliver(p.copy(failed = false))
     }
 
-    fun discard(p: Pending) = _ui.update { u -> u.copy(pending = u.pending.filterNot { it.localId == p.localId }) }
+    fun discard(p: Pending) {
+        _ui.update { u -> u.copy(pending = u.pending.filterNot { it.localId == p.localId }) }
+        saveOutbox()
+    }
+
+    private fun saveOutbox() {
+        val failed = _ui.value.pending.filter { it.failed }
+        g.settings.saveOutbox(id, failed.takeIf { it.isNotEmpty() }?.let { json.encodeToString(ListSerializer(Pending.serializer()), it) })
+    }
 
     private fun deliver(p: Pending) = viewModelScope.launch {
         runCatching {
@@ -169,10 +192,11 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             )
         }.onSuccess { s ->
             _ui.update { it.copy(session = s) }
+            saveOutbox()
             refresh()
         }.onFailure { e ->
-            if (draft().isBlank()) saveDraft(p.text)
-            _ui.update { u -> u.copy(pending = u.pending.map { if (it.localId == p.localId) it.copy(failed = true, error = e.message) else it }) }
+            _ui.update { u -> u.copy(pending = u.pending.map { if (it.localId == p.localId) it.copy(failed = true, error = e.userMessage()) else it }) }
+            saveOutbox()
         }
     }
 
