@@ -23,12 +23,15 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -74,6 +77,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -100,7 +104,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onOpen: (String) -> Unit,
@@ -118,6 +122,8 @@ fun HomeScreen(
     val account by g.auth.account.collectAsStateWithLifecycle()
     val settings by g.settings.settings.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 480
+    val imeVisible = WindowInsets.isImeVisible
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var prompt by rememberSaveable { mutableStateOf("") }
@@ -203,62 +209,68 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.onBackground,
         ) {
             Column(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                        Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
-                    }
-                    Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                if (!(compactHeight && imeVisible)) {
+                    Row(
+                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = onSettings) {
+                            Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        }
                     }
                 }
-                Box(
-                    Modifier.weight(1f).fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val firstName = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
-                        val greeting = greeting(java.time.LocalTime.now().hour, firstName)
-                        val entranceOffset = with(LocalDensity.current) { 12.dp.roundToPx() }
-                        AnimatedVisibility(
-                            visible = greetingVisible,
-                            enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { entranceOffset },
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                HomeOrb(busy = busy)
-                                Spacer(Modifier.height(22.dp))
-                                Text(
-                                    greeting,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(24.dp))
-                        AnimatedVisibility(visible = statusVisible, enter = fadeIn(tween(220))) {
-                            val needsYou = ui.needsYouCount
-                            val working = ui.workingCount
-                            Row(
-                                Modifier.clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .clickable {
-                                        scope.launch {
-                                            drawerState.close()
-                                            onSessions(if (needsYou > 0) SessionFilter.NeedsYou else null, false)
-                                        }
-                                    }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                if (compactHeight && imeVisible) {
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    Box(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val firstName = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
+                            val greeting = greeting(java.time.LocalTime.now().hour, firstName)
+                            val entranceOffset = with(LocalDensity.current) { 12.dp.roundToPx() }
+                            AnimatedVisibility(
+                                visible = greetingVisible,
+                                enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { entranceOffset },
                             ) {
-                                Text(
-                                    if (needsYou == 0 && working == 0) "All caught up"
-                                    else "$needsYou need you · $working working",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    HomeOrb(busy = busy)
+                                    Spacer(Modifier.height(22.dp))
+                                    Text(
+                                        greeting,
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(24.dp))
+                            AnimatedVisibility(visible = statusVisible, enter = fadeIn(tween(220))) {
+                                val needsYou = ui.needsYouCount
+                                val working = ui.workingCount
+                                Row(
+                                    Modifier.clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .clickable {
+                                            scope.launch {
+                                                drawerState.close()
+                                                onSessions(if (needsYou > 0) SessionFilter.NeedsYou else null, false)
+                                            }
+                                        }
+                                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        if (needsYou == 0 && working == 0) "All caught up"
+                                        else "$needsYou need you · $working working",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
                             }
                         }
                     }
@@ -291,7 +303,7 @@ fun HomeScreen(
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions(onSend = { send() }),
                                 minLines = 1,
-                                maxLines = 6,
+                                maxLines = if (compactHeight) 3 else 6,
                                 decorationBox = { inner ->
                                     Box {
                                         if (prompt.isEmpty()) {
