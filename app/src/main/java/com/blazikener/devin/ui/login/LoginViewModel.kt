@@ -25,7 +25,9 @@ data class LoginUi(
 
 /** Holds sign-in form state and the in-flight key check so both survive rotation. */
 class LoginViewModel(private val g: AppGraph) : ViewModel() {
-    private val _ui = MutableStateFlow(LoginUi())
+    private val _ui = MutableStateFlow(
+        g.auth.lastBaseUrl.let { LoginUi(baseUrl = it, advanced = it != AuthStore.DEFAULT_BASE_URL) }
+    )
     val ui: StateFlow<LoginUi> = _ui
 
     fun setKey(v: String) = _ui.update { it.copy(key = v, error = null) }

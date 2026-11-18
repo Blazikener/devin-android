@@ -36,8 +36,14 @@ class AuthStore(context: Context) {
         _account.value = a
     }
 
+    /** API URL of the last account, kept after sign-out so enterprise users don't retype it. */
+    val lastBaseUrl: String get() = prefs.getString("base_url", null) ?: DEFAULT_BASE_URL
+
     fun clear() {
-        prefs.edit().clear().apply()
+        val base = prefs.getString("base_url", null)
+        prefs.edit().clear().apply {
+            if (base != null && base != DEFAULT_BASE_URL) putString("base_url", base)
+        }.apply()
         _account.value = null
     }
 
