@@ -103,6 +103,7 @@ import com.blazikener.devin.data.SessionState
 import com.blazikener.devin.graph
 import com.blazikener.devin.ui.components.Markdown
 import com.blazikener.devin.ui.components.StatusPill
+import com.blazikener.devin.ui.components.StatusDot
 import com.blazikener.devin.ui.components.openUrl
 import com.blazikener.devin.ui.components.relativeTime
 import com.blazikener.devin.ui.components.shareText
@@ -322,7 +323,7 @@ private fun PendingBubble(p: Pending, onRetry: () -> Unit, onDiscard: () -> Unit
 @Composable
 private fun WorkingIndicator() {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+        StatusDot(SessionState.Working)
         Spacer(Modifier.width(8.dp))
         Text("Devin is working…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -333,7 +334,8 @@ fun Composer(
     value: String, onChange: (String) -> Unit, enterToSend: Boolean, canSend: Boolean, hint: String,
     onAttach: () -> Unit, onSend: () -> Unit, maxHeight: androidx.compose.ui.unit.Dp = 180.dp,
 ) {
-    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 2.dp, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
+    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(10.dp), verticalAlignment = Alignment.Bottom) {
         IconButton(onClick = onAttach) { Icon(Icons.Outlined.AttachFile, "Attach files") }
         OutlinedTextField(
             value = value, onValueChange = onChange, placeholder = { Text(hint) },
@@ -348,7 +350,7 @@ fun Composer(
         FilledIconButton(onClick = onSend, enabled = canSend, modifier = Modifier.size(48.dp).testTag("send")) {
             Icon(Icons.AutoMirrored.Outlined.Send, "Send")
         }
-    }
+    } }
 }
 
 private fun saveAttachment(

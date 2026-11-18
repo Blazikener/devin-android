@@ -12,6 +12,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -63,7 +68,13 @@ class MainActivity : ComponentActivity() {
                     }
                     nav.navigate(route) { popUpTo("sessions") }
                 }
-                NavHost(nav, startDestination = start) {
+                NavHost(
+                    nav, startDestination = start,
+                    enterTransition = { fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 12 } },
+                    exitTransition = { fadeOut(tween(160)) },
+                    popEnterTransition = { fadeIn(tween(220)) },
+                    popExitTransition = { fadeOut(tween(180)) + slideOutHorizontally(tween(240)) { it / 12 } },
+                ) {
                     composable("login") {
                         LoginScreen(onSignedIn = {
                             SessionWatcher.schedule(this@MainActivity, settings.pollMinutes)
