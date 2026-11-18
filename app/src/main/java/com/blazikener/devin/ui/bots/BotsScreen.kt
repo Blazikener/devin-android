@@ -168,25 +168,23 @@ fun BotScreen(id: String, onBack: () -> Unit, onOpenSession: (String) -> Unit) {
                 },
             )
         },
-        bottomBar = {
+    ) { pad ->
+        Column(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().imePadding()) {
+            PrimaryTabRow(selectedTabIndex = tab) {
+                Tab(tab == 0, { tab = 0 }, text = { Text("Chat") })
+                Tab(tab == 1, { tab = 1 }, text = { Text(if (ui.sessions.isEmpty()) "Sessions" else "Sessions (${ui.sessions.size})") })
+            }
+            Box(Modifier.weight(1f)) { when {
+                ui.loading && ui.bot == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                ui.bot == null -> Message(ui.error ?: "Couldn't load this Bot.", "Retry") { scope.launch { vm.refresh() } }
+                tab == 0 -> BotChat(ui, vm)
+                else -> BotSessions(ui.sessions, onOpenSession)
+            } }
             if (tab == 0 && ui.bot != null) Composer(
                 value = draft, onChange = { draft = it }, enterToSend = settings.enterToSend,
                 canSend = draft.isNotBlank(), hint = "Message ${ui.bot?.displayName ?: "Bot"}",
                 onAttach = null, onSend = { vm.send(draft); draft = "" },
             )
-        },
-    ) { pad ->
-        Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
-            PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(tab == 0, { tab = 0 }, text = { Text("Chat") })
-                Tab(tab == 1, { tab = 1 }, text = { Text(if (ui.sessions.isEmpty()) "Sessions" else "Sessions (${ui.sessions.size})") })
-            }
-            when {
-                ui.loading && ui.bot == null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                ui.bot == null -> Message(ui.error ?: "Couldn't load this Bot.", "Retry") { scope.launch { vm.refresh() } }
-                tab == 0 -> BotChat(ui, vm)
-                else -> BotSessions(ui.sessions, onOpenSession)
-            }
         }
     }
 }
