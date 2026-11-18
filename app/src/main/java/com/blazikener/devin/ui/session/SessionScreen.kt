@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -108,7 +110,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, onOpenSession: (String) -> Unit) {
     val ctx = LocalContext.current
@@ -154,9 +156,12 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     fun act(label: String, block: suspend () -> com.blazikener.devin.data.Session) =
         vm.act(block) { err -> scope.launch { snack.showSnackbar(err ?: label) } }
 
+    // In landscape the keyboard leaves too little height for the header, context row and composer.
+    val typingCramped = WindowInsets.isImeVisible &&
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 480
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (!typingCramped) TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
                 title = {
                     Column {
@@ -191,7 +196,7 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
             else if (ui.error != null && ui.messages.isEmpty() && ui.session == null) Banner(Icons.Outlined.CloudOff, "Couldn't load this session: ${ui.error}") {
                 TextButton(onClick = { scope.launch { vm.refresh() } }) { Text("Retry") }
             }
-            if (s != null) SessionContext(s, ui.attachments, onOpenSession, onAttachment = { a -> saveAttachment(ctx, vm, a, scope, snack) })
+            if (s != null && !typingCramped) SessionContext(s, ui.attachments, onOpenSession, onAttachment = { a -> saveAttachment(ctx, vm, a, scope, snack) })
             Box(Modifier.weight(1f)) {
                 if (ui.loading && ui.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("messages"), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom), reverseLayout = true) {
