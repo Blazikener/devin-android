@@ -2,6 +2,13 @@
 
 An unofficial native Android client for managing Devin sessions from your phone. Not affiliated with Cognition.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-dark.png">
+    <img src="docs/screenshots/hero-light.png" alt="Devin for Android: Home, Sessions, and a session chat" width="860">
+  </picture>
+</p>
+
 ## Features
 
 - Browse sessions with state filters, search, and pins.
@@ -11,6 +18,15 @@ An unofficial native Android client for managing Devin sessions from your phone.
 - Receive session notifications with inline reply; open sessions from `app.devin.ai/sessions/...` links.
 - Share text to Devin, use the launcher shortcut, and browse the offline session cache.
 - Store API keys with Android encrypted storage.
+
+## Screenshots
+
+| | Home | Sessions | Chat | New session |
+| --- | --- | --- | --- | --- |
+| **Light** | <img src="docs/screenshots/light-home.png" width="190" alt="Home, light"> | <img src="docs/screenshots/light-sessions.png" width="190" alt="Sessions, light"> | <img src="docs/screenshots/light-chat.png" width="190" alt="Chat, light"> | <img src="docs/screenshots/light-create.png" width="190" alt="New session, light"> |
+| **Dark** | <img src="docs/screenshots/dark-home.png" width="190" alt="Home, dark"> | <img src="docs/screenshots/dark-sessions.png" width="190" alt="Sessions, dark"> | <img src="docs/screenshots/dark-chat.png" width="190" alt="Chat, dark"> | <img src="docs/screenshots/dark-create.png" width="190" alt="New session, dark"> |
+
+Captured from a debug build running against `tools/mock_devin_api.py`; no real account data. Frame new captures with `python3 tools/frame_screenshots.py RAW_DIR docs/screenshots`.
 
 ## Get an API key
 
