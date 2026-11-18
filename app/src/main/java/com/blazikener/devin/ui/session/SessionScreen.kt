@@ -215,14 +215,14 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                     Icon(Icons.Outlined.KeyboardArrowDown, "Jump to latest")
                 }
             }
-            when (s?.state) {
+            if (!typingCramped) when (s?.state) {
                 SessionState.NeedsApproval -> Banner(Icons.Outlined.ErrorOutline, "Devin is waiting for an approval. Reply here, or open the session to approve the pending action.") {
                     TextButton(onClick = { openUrl(ctx, s.url) }) { Text("Open") }
                 }
                 SessionState.Blocked -> Banner(Icons.Outlined.ErrorOutline, "This session hit a usage or ACU limit. Raise the limit or reply to resume.")
                 else -> {}
             }
-            if (ui.drafts.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (ui.drafts.isNotEmpty() && !typingCramped) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ui.drafts.forEach { d ->
                     InputChip(
                         selected = d.error != null, onClick = { vm.removeDraft(d) },
@@ -241,6 +241,7 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                     else -> "Message Devin…"
                 },
                 onAttach = { picker.launch("*/*") }, onSend = ::send,
+                maxHeight = if (typingCramped) 72.dp else 180.dp,
             )
         }
     }
@@ -330,13 +331,13 @@ private fun WorkingIndicator() {
 @Composable
 fun Composer(
     value: String, onChange: (String) -> Unit, enterToSend: Boolean, canSend: Boolean, hint: String,
-    onAttach: () -> Unit, onSend: () -> Unit,
+    onAttach: () -> Unit, onSend: () -> Unit, maxHeight: androidx.compose.ui.unit.Dp = 180.dp,
 ) {
     Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp), verticalAlignment = Alignment.Bottom) {
         IconButton(onClick = onAttach) { Icon(Icons.Outlined.AttachFile, "Attach files") }
         OutlinedTextField(
             value = value, onValueChange = onChange, placeholder = { Text(hint) },
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 180.dp).testTag("composer").onPreviewKeyEvent { e ->
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = maxHeight).testTag("composer").onPreviewKeyEvent { e ->
                 if (enterToSend && e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed && canSend) { onSend(); true } else false
             },
             shape = RoundedCornerShape(24.dp),
