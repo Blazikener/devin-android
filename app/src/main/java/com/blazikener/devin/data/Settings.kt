@@ -3,6 +3,31 @@ package com.blazikener.devin.data
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class DraftAttachment(val name: String, val url: String)
+
+/** Everything typed into the new-session form, kept until the session is started or cleared. */
+@Serializable
+data class NewSessionDraft(
+    val prompt: String = "",
+    val title: String = "",
+    val tags: String = "",
+    val acu: String = "",
+    val mode: String? = null,
+    val repos: List<String> = emptyList(),
+    @SerialName("playbook_id") val playbookId: String? = null,
+    val attachments: List<DraftAttachment> = emptyList(),
+) {
+    val isEmpty: Boolean
+        get() = prompt.isBlank() && title.isBlank() && tags.isBlank() && repos.isEmpty() && playbookId == null && attachments.isEmpty()
+
+    /** Shared text is added to whatever is already drafted so an unfinished prompt is never overwritten. */
+    fun withShared(text: String?): NewSessionDraft =
+        if (text.isNullOrBlank()) this else copy(prompt = listOf(prompt.trimEnd(), text.trim()).filter { it.isNotEmpty() }.joinToString("\n\n"))
+}
 
 enum class ThemeMode { System, Light, Dark }
 
@@ -61,7 +86,27 @@ class SettingsStore(context: Context) {
     fun saveDraft(sessionId: String, text: String) {
         drafts.edit().apply { if (text.isBlank()) remove(sessionId) else putString(sessionId, text) }.apply()
     }
+
+    fun newSessionDraft(defaults: AppSettings = value): NewSessionDraft {
+        val fresh = NewSessionDraft(acu = defaults.defaultAcuLimit?.toString() ?: "", mode = defaults.defaultMode)
+        drafts.getString(NEW_SESSION_KEY, null)?.let { raw ->
+            runCatching { json.decodeFromString(NewSessionDraft.serializer(), raw) }.getOrNull()?.let { return it }
+        }
+        // Older versions stored only the prompt, as plain text under another key.
+        return fresh.copy(prompt = drafts.getString(LEGACY_NEW_SESSION_KEY, "").orEmpty())
+    }
+    fun saveNewSessionDraft(d: NewSessionDraft) {
+        drafts.edit().apply {
+            remove(LEGACY_NEW_SESSION_KEY)
+            if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
+        }.apply()
+    }
     fun clearDrafts() = drafts.edit().clear().apply()
+
+    private companion object {
+        const val NEW_SESSION_KEY = "__new_session__"
+        const val LEGACY_NEW_SESSION_KEY = "__new__"
+    }
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)
     private val _pinned = MutableStateFlow(pins.getStringSet("ids", emptySet())!!.toSet())
