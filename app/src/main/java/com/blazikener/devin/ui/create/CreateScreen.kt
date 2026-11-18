@@ -96,8 +96,40 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     LaunchedEffect(form) { if (!created) g.settings.saveNewSessionDraft(form) }
 
     LaunchedEffect(Unit) {
-        launch { runCatching { g.api.repositories() }.onSuccess { repos = it.items } }
-        launch { runCatching { g.api.playbooks() }.onSuccess { playbooks = it.items } }
+        launch {
+            runCatching {
+                val items = mutableListOf<Repository>()
+                var after: String? = null
+                var pages = 0
+                while (pages < 20) {
+                    val page = g.api.repositories(first = 100, after = after)
+                    pages++
+                    items += page.items
+                    repos = items.toList()
+                    if (!page.hasNextPage) break
+                    val next = page.endCursor ?: break
+                    if (next == after) break
+                    after = next
+                }
+            }
+        }
+        launch {
+            runCatching {
+                val items = mutableListOf<Playbook>()
+                var after: String? = null
+                var pages = 0
+                while (pages < 20) {
+                    val page = g.api.playbooks(first = 200, after = after)
+                    pages++
+                    items += page.items
+                    playbooks = items.toList()
+                    if (!page.hasNextPage) break
+                    val next = page.endCursor ?: break
+                    if (next == after) break
+                    after = next
+                }
+            }
+        }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         uris.forEach { uri ->

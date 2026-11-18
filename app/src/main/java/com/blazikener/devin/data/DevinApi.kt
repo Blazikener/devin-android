@@ -150,11 +150,11 @@ class DevinApi(
         )
     }
 
-    suspend fun repositories(filter: String? = null, first: Int = 100): Page<Repository> =
-        json.decodeFromString(get("/v3/organizations/${org()}/repositories", listOf("first" to "$first", "filter_name" to filter)))
+    suspend fun repositories(filter: String? = null, first: Int = 100, after: String? = null): Page<Repository> =
+        json.decodeFromString(get("/v3/organizations/${org()}/repositories", listOf("first" to "$first", "filter_name" to filter, "after" to after)))
 
-    suspend fun playbooks(first: Int = 100): Page<Playbook> =
-        json.decodeFromString(get("/v3/organizations/${org()}/playbooks", listOf("first" to "$first", "include_enterprise" to "true")))
+    suspend fun playbooks(first: Int = 200, after: String? = null): Page<Playbook> =
+        json.decodeFromString(get("/v3/organizations/${org()}/playbooks", listOf("first" to "$first", "include_enterprise" to "true", "after" to after)))
 
     /** Downloads an auth-gated attachment. */
     suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
