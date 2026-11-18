@@ -111,6 +111,7 @@ fun HomeScreen(
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
     onNewForm: (prompt: String) -> Unit,
     onSettings: () -> Unit,
+    onBots: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -203,6 +204,7 @@ fun HomeScreen(
                 onAllSessions = { navigateFromDrawer { onSessions(null, false) } },
                 onNeedsYou = { navigateFromDrawer { onSessions(SessionFilter.NeedsYou, false) } },
                 onSettings = { navigateFromDrawer(onSettings) },
+                onBots = { navigateFromDrawer(onBots) },
                 onOpen = { id -> navigateFromDrawer { onOpen(id) } },
                 onViewAll = { navigateFromDrawer { onSessions(null, false) } },
                 onNewSession = { navigateFromDrawer { onNewForm("") } },
@@ -493,6 +495,7 @@ private fun HomeDrawer(
     onAllSessions: () -> Unit,
     onNeedsYou: () -> Unit,
     onSettings: () -> Unit,
+    onBots: () -> Unit,
     onOpen: (String) -> Unit,
     onViewAll: () -> Unit,
     onNewSession: () -> Unit,
@@ -534,6 +537,13 @@ private fun HomeDrawer(
                 }
                 DrawerItem(2, openTarget) {
                     NavigationDrawerItem(
+                        label = { Text("Bots") },
+                        selected = false,
+                        onClick = onBots,
+                    )
+                }
+                DrawerItem(3, openTarget) {
+                    NavigationDrawerItem(
                         label = { Text("Settings") },
                         selected = false,
                         onClick = onSettings,
@@ -547,7 +557,7 @@ private fun HomeDrawer(
                     modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
                 )
                 ui.all.sortedByDescending(Session::updatedAt).take(8).forEachIndexed { index, session ->
-                    DrawerItem(index + 3, openTarget) {
+                    DrawerItem(index + 4, openTarget) {
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                 .clickable { onOpen(session.id) }

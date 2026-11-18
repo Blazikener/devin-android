@@ -8,6 +8,7 @@ An unofficial native Android client for managing Devin sessions from your phone.
 - Read and send Markdown chat messages, retry sends, and upload or download attachments.
 - Create sessions with repositories, playbooks, Devin mode, and ACU limits.
 - Sleep, archive, or terminate sessions.
+- Open your Devin Bots (`app.devin.ai/org/<name>/bots`) from the menu, signed in with your Devin web login; session links open in the app.
 - Receive session notifications with inline reply; open sessions from `app.devin.ai/sessions/...` links.
 - Share text to Devin, use the launcher shortcut, and browse the offline session cache.
 - Store API keys with Android encrypted storage.
@@ -43,3 +44,5 @@ Use a debug build (`./gradlew installDebug`): release builds, including the publ
 ## Known limits
 
 The API does not support approving pending actions, interactive shell, or IDE access; the app links out to Devin on the web for those tasks. Background session checks use WorkManager, which runs no more frequently than every 15 minutes; refresh is live while the app is open.
+
+The public API has no Bots endpoints, so the Bots screen embeds Devin on the web. Google blocks sign-in inside embedded web views; Google accounts can use Open in browser instead.
