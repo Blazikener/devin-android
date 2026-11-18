@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -151,7 +152,7 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
         },
         snackbarHost = { SnackbarHost(snack) },
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
+        Column(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().imePadding()) {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

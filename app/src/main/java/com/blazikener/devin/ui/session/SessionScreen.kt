@@ -222,7 +222,7 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                 SessionState.Blocked -> Banner(Icons.Outlined.ErrorOutline, "This session hit a usage or ACU limit. Raise the limit or reply to resume.")
                 else -> {}
             }
-            if (ui.drafts.isNotEmpty() && !typingCramped) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (ui.drafts.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ui.drafts.forEach { d ->
                     InputChip(
                         selected = d.error != null, onClick = { vm.removeDraft(d) },
