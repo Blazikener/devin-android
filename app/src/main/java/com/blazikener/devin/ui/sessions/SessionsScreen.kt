@@ -105,7 +105,9 @@ fun SessionsScreen(onOpen: (String) -> Unit, onNew: () -> Unit, onSettings: () -
         }
     }
     val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 >= listState.layoutInfo.totalItemsCount - 5 } }
-    LaunchedEffect(nearEnd) { if (nearEnd) vm.loadMore() }
+    LaunchedEffect(nearEnd, ui.all.size, ui.archived.size, ui.loadingMore, ui.hasMore) {
+        if (nearEnd && !ui.loadingMore && ui.hasMore) vm.loadMore()
+    }
 
     Scaffold(
         topBar = {
