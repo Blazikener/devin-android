@@ -300,7 +300,11 @@ fun HomeScreen(
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(
-                                onClick = { onNewForm(prompt) },
+                                onClick = {
+                                    val text = prompt
+                                    prompt = ""
+                                    onNewForm(text)
+                                },
                                 modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceContainerLow, CircleShape),
                             ) {
                                 Icon(Icons.Outlined.Add, contentDescription = "More options")
