@@ -55,10 +55,13 @@ class MainActivity : ComponentActivity() {
                     val l = launch ?: return@LaunchedEffect
                     if (account == null) return@LaunchedEffect
                     pending.value = null
-                    when (l) {
-                        is Launch.OpenSession -> nav.navigate("session/${l.id}")
-                        is Launch.NewSession -> nav.navigate("create?prompt=" + enc(l.prompt.orEmpty()))
+                    // Links, shares and shortcuts start from the session list so Back leads home and
+                    // repeated launches don't pile up screens; the new-session form keeps its draft.
+                    val route = when (l) {
+                        is Launch.OpenSession -> "session/${l.id}"
+                        is Launch.NewSession -> "create?prompt=" + enc(l.prompt.orEmpty())
                     }
+                    nav.navigate(route) { popUpTo("sessions") }
                 }
                 NavHost(nav, startDestination = start) {
                     composable("login") {

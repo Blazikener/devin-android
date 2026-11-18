@@ -6,6 +6,7 @@ import com.blazikener.devin.AppGraph
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.data.SessionState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -96,7 +97,10 @@ class SessionsViewModel(private val g: AppGraph, private val onActed: (Session) 
                     g.cache.putSessions(cacheKey(), page.items)
                 }
             }
-            .onFailure { e -> _ui.update { it.copy(loading = false, error = e.message, offline = it.all.isNotEmpty()) } }
+            .onFailure { e ->
+                if (e is CancellationException) throw e
+                _ui.update { it.copy(loading = false, error = e.message, offline = it.all.isNotEmpty()) }
+            }
     }
 
     fun loadMore() {
