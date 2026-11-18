@@ -152,6 +152,22 @@ class SessionsViewModelTest {
     }
 
     @Test
+    fun allUsersActionMovesOwnerlessRowAlreadyKnownToBeMine() = runTest {
+        val ownerless = mine.copy(userId = null)
+        val moved = ownerless.copy(isArchived = true)
+        val vm = model(perform = { _, _ -> moved }) { _, _, _, _ -> Page(listOf(ownerless)) }
+        runCurrent()
+        vm.toggleMine()
+        runCurrent()
+        vm.act(ownerless.id, SessionAction.Archive) {}
+        runCurrent()
+
+        assertEquals(emptyList<Session>(), cache["mine"])
+        assertEquals(listOf(moved), cache["mine_archived"])
+        assertEquals(listOf(moved), cache["org_archived"])
+    }
+
+    @Test
     fun refreshKeepsTheLoadedExtentBeyondTheApiPageLimit() = runTest {
         val rows = (1..260).map { Session("session-$it", updatedAt = -it.toLong()) }
         val vm = model { first, cursor, _, _ ->

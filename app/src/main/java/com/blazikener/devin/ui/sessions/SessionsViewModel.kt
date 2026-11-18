@@ -221,24 +221,33 @@ internal class SessionsViewModel(
 
     private suspend fun updateAfterAction(session: Session, action: SessionAction, owner: String?) = cacheWrites.withLock {
         val moved = action == SessionAction.Archive || action == SessionAction.Unarchive
-        val mine = userId != null && (session.userId ?: owner) == userId
-        for (mineOnly in if (mine) listOf(false, true) else listOf(false)) {
-            for (archived in if (moved) listOf(false, true) else listOf(session.isArchived)) {
-                val key = SessionFeedKey(mineOnly, archived)
-                val cached = if (_ui.value.feed(key).initialized) null else readScopedCache(key)
-                val feed = _ui.value.feed(key)
-                val previous = if (feed.initialized) feed.items else cached.orEmpty()
+        val ownership = session.userId ?: owner
+        val keys = (if (userId == null) listOf(false) else listOf(false, true)).flatMap { mine ->
+            (if (moved) listOf(false, true) else listOf(session.isArchived)).map { archived -> SessionFeedKey(mine, archived) }
+        }
+        val cached = keys.filterNot { _ui.value.feed(it).initialized }.associateWith { readScopedCache(it) }
+        val current = _ui.value
+        val previous = keys.associateWith { key ->
+            current.feed(key).takeIf { it.initialized }?.items ?: cached[key].orEmpty()
+        }
+        val wasInMine = previous.any { (key, rows) -> key.mine && rows.any { it.id == session.id } }
+        val belongsInMine = userId != null && (ownership == userId || (ownership == null && wasInMine))
+        val updated = buildMap {
+            previous.forEach { (key, rows) ->
                 val items = when {
-                    !moved -> previous.map { if (it.id == session.id) session else it }
-                    archived == session.isArchived -> listOf(session) + previous.filterNot { it.id == session.id }
-                    else -> previous.filterNot { it.id == session.id }
+                    !moved -> rows.map { if (it.id == session.id) session else it }
+                    key.archived == session.isArchived && (!key.mine || belongsInMine) ->
+                        listOf(session) + rows.filterNot { it.id == session.id }
+                    else -> rows.filterNot { it.id == session.id }
                 }
-                if (items != previous) {
-                    updateFeed(key) { it.copy(items = items, initialized = true, revision = it.revision + 1) }
-                    writeCache(key.cacheKey, items)
+                if (items != rows) {
+                    val feed = current.feed(key)
+                    put(key, feed.copy(items = items, initialized = true, revision = feed.revision + 1))
                 }
             }
         }
+        _ui.update { it.copy(feeds = it.feeds + updated) }
+        updated.forEach { (key, feed) -> writeCache(key.cacheKey, feed.items) }
     }
 
     private fun Page<Session>.nextCursor(previous: String?): String? =
