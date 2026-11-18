@@ -121,7 +121,9 @@ fun HomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var prompt by rememberSaveable { mutableStateOf("") }
-    var mode by rememberSaveable { mutableStateOf(settings.defaultMode) }
+    var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
+    var modeChosen by rememberSaveable { mutableStateOf(false) }
+    val mode = if (modeChosen) chosenMode else settings.defaultMode
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showModePicker by remember { mutableStateOf(false) }
@@ -161,6 +163,7 @@ fun HomeScreen(
                 )
             }.onSuccess { session ->
                 prompt = ""
+                modeChosen = false
                 busy = false
                 onOpen(session.id)
             }.onFailure { failure ->
@@ -378,7 +381,8 @@ fun HomeScreen(
                 DEVIN_MODES.forEach { (value, label) ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            mode = value
+                            chosenMode = value
+                            modeChosen = true
                             showModePicker = false
                         }.padding(vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
