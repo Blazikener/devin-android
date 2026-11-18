@@ -71,6 +71,17 @@ class DevinApiTest {
     }
 
     @Test
+    fun repositoriesSendsAfterCursor() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"items":[],"has_next_page":false}"""))
+
+        api.repositories(after = "c1")
+
+        val request = server.takeRequest()
+        assertEquals("/v3/organizations/org-1/repositories", request.requestUrl!!.encodedPath)
+        assertEquals("c1", request.requestUrl!!.queryParameter("after"))
+    }
+
+    @Test
     fun unauthorizedResponseIsReadableAuthException() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"detail":"Invalid API key"}"""))
 
