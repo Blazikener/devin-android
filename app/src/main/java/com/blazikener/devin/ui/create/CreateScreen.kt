@@ -61,7 +61,9 @@ fun CreateScreen(
     val focus = LocalFocusManager.current
     val saved = remember { graph.settings.newSessionDraft() }
     val launchAttempts = remember { graph.createGate.attempts.value }
-    val recoveryPrompt = initialPrompt?.takeIf { prompt -> launchAttempts.any { it.matches(prompt) } }
+    var recoveryPrompt by rememberSaveable {
+        mutableStateOf(initialPrompt?.takeIf { prompt -> launchAttempts.any { it.matches(prompt) } })
+    }
     var sharedChoice by rememberSaveable {
         mutableStateOf(saved.needsSharedChoice(initialPrompt, launchAttempts))
     }
@@ -82,7 +84,10 @@ fun CreateScreen(
 
     // Persist synchronously at the edit boundary, including mode-only and ACU-only drafts.
     fun update(next: NewSessionDraft) {
-        if (!next.sameContentAs(form)) ownsDraft = true
+        if (!next.sameContentAs(form)) {
+            ownsDraft = true
+            if (next.prompt.trim() != recoveryPrompt?.trim()) recoveryPrompt = null
+        }
         form = next.withVersionFrom(form)
         if (ownsDraft && vm.ui.value.sessionId == null && form != lastSavedForm) {
             graph.settings.saveNewSessionDraft(form)
@@ -186,10 +191,11 @@ fun CreateScreen(
                         onClick = {
                             if (attachmentVm.uploads.items.value.isEmpty()) {
                                 focus.clearFocus()
+                                recoveryPrompt = null
                                 vm.submit(form, settings.createAsUserId, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
-                        enabled = !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        enabled = recoveryPrompt?.let { submission.confirmation?.matches(it) } != true && !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create"),
                         shape = MaterialTheme.shapes.medium,
                     ) {
@@ -217,14 +223,14 @@ fun CreateScreen(
                 Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             submission.confirmation?.let { attempt ->
-                if (recoveryPrompt != null && attempt.matches(recoveryPrompt)) Text(
+                if (recoveryPrompt?.let(attempt::matches) == true) Text(
                     "The shared task has a previous attempt. Your saved draft is kept below.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 CreateRecoveryWarning(
                     attempt = attempt,
                     onCheckRecents = onCheckSessions,
-                    onDismiss = vm::dismissWarning,
+                    onDismiss = { recoveryPrompt = null; vm.dismissWarning() },
                     onClear = { vm.clearAttempt(attempt) },
                     onRetry = if (uploads.isEmpty()) ({
                         focus.clearFocus()
@@ -349,6 +355,7 @@ fun CreateScreen(
         },
         confirmButton = { TextButton(onClick = {
             attachmentVm.uploads.clear()
+            recoveryPrompt = null
             graph.settings.consumeNewSessionDraft(form)
             form = graph.settings.newSessionDraft()
             lastSavedForm = form
