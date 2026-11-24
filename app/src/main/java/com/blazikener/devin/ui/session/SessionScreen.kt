@@ -343,9 +343,8 @@ fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, ca
     }
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 12.dp)) {
         DevinOutlinedSurface(Modifier.fillMaxWidth()) {
-            if (compact) {
-                // One row fits above a landscape IME. Avoid Material TextField's vertical
-                // decoration padding swallowing the editable line in this constrained space.
+                // Keep one input node through IME/inset changes, so opening the keyboard
+                // never replaces the focused editor. A single row also reserves both actions.
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     attach()
@@ -353,7 +352,7 @@ fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, ca
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = maxHeight)
                             .padding(horizontal = 8.dp, vertical = 4.dp).then(fieldModifier),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), maxLines = 2,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), maxLines = if (compact) 2 else 6,
                         keyboardOptions = options, keyboardActions = actions,
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterStart) {
@@ -365,20 +364,6 @@ fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, ca
                         })
                     send()
                 }
-            } else Column {
-                OutlinedTextField(value, onChange, placeholder = { Text(hint) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = maxHeight).then(fieldModifier),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent),
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    keyboardOptions = options, keyboardActions = actions)
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    attach()
-                    send()
-                }
-            }
         }
     }
 }
