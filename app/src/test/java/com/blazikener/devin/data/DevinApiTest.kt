@@ -14,9 +14,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class DevinApiTest {
+    @get:Rule val temporary = TemporaryFolder()
     private lateinit var server: MockWebServer
     private lateinit var api: DevinApi
 
@@ -132,18 +135,23 @@ class DevinApiTest {
 
     @Test
     fun uploadUsesMultipartFilePart() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"attachment_id":"file-1","name":"note.txt","url":"https://example.test/note.txt"}"""))
+        server.enqueue(MockResponse().setBody("""{"attachment_id":"file-1","name":"my note.txt","url":"https://example.test/my%20note.txt"}"""))
 
-        val uploaded = api.upload("note.txt", "text/plain", "hello".toByteArray())
+        val file = temporary.newFile().apply { writeText("hello") }
+        val uploaded = api.upload("my note.txt", "text/plain", file)
         val request = server.takeRequest()
         val contentType = request.getHeader("Content-Type")
         val requestBody = ByteArrayOutputStream()
         request.body!!.writeTo(requestBody)
 
         assertEquals("file-1", uploaded.id)
+        assertEquals("POST", request.method)
+        assertEquals("/v3/organizations/org-1/attachments", request.path)
         assertNotNull(contentType)
+        assertNotNull(request.getHeader("Content-Length"))
         assertTrue(contentType.orEmpty().startsWith("multipart/form-data;"))
-        assertTrue(requestBody.toString(Charsets.UTF_8).contains("name=\"file\"; filename=\"note.txt\""))
+        assertTrue(requestBody.toString(Charsets.UTF_8).contains("name=\"file\"; filename=\"my note.txt\""))
+        assertTrue(requestBody.toString(Charsets.UTF_8).contains("\r\n\r\nhello\r\n"))
     }
 
     @Test

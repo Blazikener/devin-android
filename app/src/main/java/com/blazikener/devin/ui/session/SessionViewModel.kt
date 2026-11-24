@@ -1,8 +1,6 @@
 package com.blazikener.devin.ui.session
 
 import android.content.Context
-import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blazikener.devin.AppGraph
@@ -14,8 +12,9 @@ import com.blazikener.devin.data.SessionAttachment
 import com.blazikener.devin.data.SessionMessage
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
+import com.blazikener.devin.ui.components.AttachmentUploads
+import com.blazikener.devin.ui.components.readyAttachmentUrls
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +22,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.IOException
@@ -37,20 +35,18 @@ internal fun Throwable.userMessage(): String? = when (this) {
     else -> message
 }
 
-data class Draft(val name: String, val mime: String, val uri: Uri, val size: Long, val uploadedUrl: String? = null, val uploading: Boolean = true, val error: String? = null)
-
 data class ChatUi(
     val session: Session? = null,
     val messages: List<SessionMessage> = emptyList(),
     val pending: List<Pending> = emptyList(),
     val attachments: List<SessionAttachment> = emptyList(),
-    val drafts: List<Draft> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
     val offline: Boolean = false,
 )
 
 class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id: String) : ViewModel() {
+    internal val uploads = AttachmentUploads(viewModelScope, ctx, g.api)
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
     private var cursor: String? = null
@@ -130,41 +126,15 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     fun draft(): String = g.settings.draft(id)
     fun saveDraft(t: String) = g.settings.saveDraft(id, t)
 
-    fun addFile(uri: Uri) {
-        val (name, size) = ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
-            c.moveToFirst()
-            val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { c.getString(it) } ?: "file"
-            val sz = c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 }?.let { c.getLong(it) } ?: 0L
-            n to sz
-        } ?: ("file" to 0L)
-        val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
-        val d = Draft(name, mime, uri, size)
-        _ui.update { it.copy(drafts = it.drafts + d) }
-        viewModelScope.launch { upload(d) }
-    }
-
-    private suspend fun upload(d: Draft) {
-        runCatching {
-            val bytes = withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(d.uri)!!.use { it.readBytes() } }
-            g.api.upload(d.name, d.mime, bytes)
-        }.onSuccess { up ->
-            _ui.update { u -> u.copy(drafts = u.drafts.map { if (it.uri == d.uri) it.copy(uploadedUrl = up.url, uploading = false) else it }) }
-        }.onFailure { e ->
-            _ui.update { u -> u.copy(drafts = u.drafts.map { if (it.uri == d.uri) it.copy(uploading = false, error = e.message) else it }) }
-        }
-    }
-
-    fun removeDraft(d: Draft) = _ui.update { u -> u.copy(drafts = u.drafts.filterNot { it.uri == d.uri }) }
-
-    val canSend: Boolean get() = _ui.value.drafts.none { it.uploading }
-
-    fun send(text: String) {
-        val urls = _ui.value.drafts.mapNotNull { it.uploadedUrl }
-        if (text.isBlank() && urls.isEmpty()) return
+    fun send(text: String): Boolean {
+        val urls = uploads.items.value.readyAttachmentUrls() ?: return false
+        if (text.isBlank() && urls.isEmpty()) return false
         val p = Pending(System.nanoTime().toString(), text.trim().ifBlank { "See attached." }, urls)
-        _ui.update { it.copy(pending = it.pending + p, drafts = emptyList()) }
+        _ui.update { it.copy(pending = it.pending + p) }
+        uploads.clear()
         saveDraft("")
         deliver(p)
+        return true
     }
 
     fun retry(p: Pending) {

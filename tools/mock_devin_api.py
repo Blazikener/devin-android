@@ -11,7 +11,7 @@ import uuid
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 
 LOCK = threading.RLock()
@@ -406,9 +406,28 @@ class MockDevinHandler(BaseHTTPRequestHandler):
             entries = sorted(MESSAGES.get(session, []), key=lambda entry: entry["created_at"])
             self.respond(200, self.page(entries, query, "event_id"))
 
-    def add_user_message(self, session, message, username="Mock User"):
+    def user_attachments(self, urls):
+        if urls is None:
+            return []
+        if not isinstance(urls, list):
+            raise ValueError("attachment_urls must be a list")
+        attachments = []
+        with LOCK:
+            for url in urls:
+                if not isinstance(url, str):
+                    raise ValueError("Invalid attachment URL")
+                path = urlsplit(url).path
+                if url != self.base_url() + path or path not in UPLOADS:
+                    raise ValueError("Unknown attachment URL")
+                attachment, _ = UPLOADS[path]
+                attachments.append(attachment)
+        return attachments
+
+    def add_user_message(self, session, message, attachments, username="Mock User"):
         with LOCK:
             add_message(session, "user", message, 0, username)
+            if attachments:
+                ATTACHMENTS.setdefault(session, []).extend(attachments)
             SESSIONS[session]["status"] = "running"
             SESSIONS[session]["status_detail"] = None
             SESSIONS[session]["updated_at"] = int(time.time())
@@ -443,10 +462,15 @@ class MockDevinHandler(BaseHTTPRequestHandler):
             message = body["message"]
             if not isinstance(message, str):
                 raise ValueError
-        except (KeyError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             self.error(400, "Invalid message")
             return
-        self.add_user_message(session, message)
+        try:
+            attachments = self.user_attachments(body.get("attachment_urls"))
+        except ValueError as error:
+            self.error(400, str(error))
+            return
+        self.add_user_message(session, message, attachments)
         self.schedule_reply(session, message)
         self.respond(200, self.get_session(session))
 
@@ -456,8 +480,13 @@ class MockDevinHandler(BaseHTTPRequestHandler):
             prompt = body["prompt"]
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError
-        except (KeyError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             self.error(400, "Invalid prompt")
+            return
+        try:
+            attachments = self.user_attachments(body.get("attachment_urls"))
+        except ValueError as error:
+            self.error(400, str(error))
             return
         created = int(time.time())
         hex_id = uuid.uuid4().hex
@@ -473,7 +502,7 @@ class MockDevinHandler(BaseHTTPRequestHandler):
         )
         with LOCK:
             SESSIONS[item["session_id"]] = item
-            add_message(item["session_id"], "user", prompt, 0, "Mock User")
+            self.add_user_message(item["session_id"], prompt, attachments)
         self.schedule_reply(item["session_id"], prompt)
         self.respond(200, item)
 
@@ -502,9 +531,16 @@ class MockDevinHandler(BaseHTTPRequestHandler):
             return
         name = file_part.get_filename() or "upload.bin"
         attachment_id = f"upload-{uuid.uuid4().hex}"
-        relative_url = f"/files/{attachment_id}/{name}"
+        relative_url = f"/files/{attachment_id}/{quote(name, safe='')}"
+        attachment = {
+            "attachment_id": attachment_id,
+            "name": name,
+            "url": relative_url,
+            "content_type": file_part.get_content_type(),
+            "source": "user",
+        }
         with LOCK:
-            UPLOADS[relative_url] = (file_part.get_content_type(), file_part.get_payload(decode=True) or b"")
+            UPLOADS[relative_url] = (attachment, file_part.get_payload(decode=True) or b"")
         self.respond(
             200,
             {
@@ -549,7 +585,8 @@ class MockDevinHandler(BaseHTTPRequestHandler):
         with LOCK:
             upload = UPLOADS.get(path)
         if upload:
-            self.respond(200, upload[1], upload[0])
+            attachment, content = upload
+            self.respond(200, content, attachment["content_type"])
         else:
             self.error(404, "Not found")
 
