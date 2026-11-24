@@ -80,7 +80,8 @@ class SessionsViewModelTest {
 
     @Test
     fun recoveryRemovesMineArchiveAndSearchThatCouldHideTheCreatedSession() = runTest {
-        val vm = model { _, _, isArchived, users ->
+        val saved = SavedStateHandle()
+        val vm = model(savedState = saved) { _, _, isArchived, users ->
             Page(if (isArchived) listOf(archived) else if (users != null) listOf(mine) else listOf(other, mine))
         }
         runCurrent()
@@ -93,6 +94,14 @@ class SessionsViewModelTest {
         assertEquals(SessionFilter.All, vm.ui.value.filter)
         assertEquals("", vm.ui.value.query)
         assertTrue(vm.ui.value.visible.any { it.id == other.id })
+        val restored = model(savedState = SavedStateHandle(saved.keys().associateWith { saved.get<Any?>(it) })) { _, _, _, users ->
+            assertEquals(null, users)
+            Page(listOf(other, mine))
+        }
+        runCurrent()
+        assertFalse(restored.ui.value.mineOnly)
+        assertEquals(SessionFilter.All, restored.ui.value.filter)
+        assertEquals("", restored.ui.value.query)
     }
 
     @Test
