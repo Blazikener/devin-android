@@ -88,6 +88,7 @@ import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinRootShell
 import com.blazikener.devin.ui.navigation.RootDestination
+import com.blazikener.devin.ui.navigation.SessionsRequest
 import androidx.compose.material.icons.outlined.Menu
 import com.blazikener.devin.ui.components.EmptyState
 import com.blazikener.devin.ui.components.StatusPill
@@ -107,6 +108,8 @@ fun SessionsScreen(
     initialFilter: SessionFilter?,
     initialSearch: Boolean,
     onHome: () -> Unit = onBack,
+    navigationRequest: SessionsRequest? = null,
+    onNavigationRequestHandled: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
@@ -126,6 +129,14 @@ fun SessionsScreen(
             initialFilter?.let(vm::setFilter)
             if (initialSearch) searching = true
             applied = true
+        }
+    }
+
+    LaunchedEffect(navigationRequest) {
+        navigationRequest?.let { request ->
+            request.filter?.let(vm::setFilter)
+            if (request.search) searching = true
+            onNavigationRequestHandled()
         }
     }
 
