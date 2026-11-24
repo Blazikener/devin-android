@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -71,6 +72,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val view = LocalView.current
     val scope = rememberCoroutineScope()
     val snack = remember { SnackbarHostState() }
     var options by rememberSaveable { mutableStateOf(false) }
@@ -78,6 +80,20 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
     var plain by rememberSaveable { mutableStateOf(false) }
     var sessionTitle by remember { mutableStateOf("Session document") }
     val title = ui.result.file?.name ?: "Document"
+    val problem = (ui.result.problem ?: ReaderProblem.Transient).let {
+        if (it == ReaderProblem.Unsupported && ui.result.file?.let(::documentFormat) in setOf(DocumentFormat.Markdown, DocumentFormat.PlainText)) ReaderProblem.WebOnly else it
+    }
+    val errorAnnouncement = if (!ui.loading && !ui.working && ui.result.document == null) {
+        readerErrorText(problem, title).let { (heading, body) -> "$heading. $body" }
+    } else null
+    LaunchedEffect(errorAnnouncement) {
+        if (errorAnnouncement != null) {
+            // A removed recovery button moves TalkBack focus and can swallow a simultaneous
+            // live-region update. Announce the settled outcome, not the disappearing action.
+            delay(600)
+            view.announceForAccessibility(errorAnnouncement)
+        }
+    }
     val focus = remember { FocusRequester() }
     LaunchedEffect(session) { context.graph.cache.session(session)?.let { sessionTitle = it.displayTitle } }
     LaunchedEffect(title) { delay(350); focus.requestFocus() }
@@ -184,9 +200,6 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
                     TextButton(onClick = onBack) { Text("Cancel") }
                 }
             } else {
-                val problem = (ui.result.problem ?: ReaderProblem.Transient).let {
-                    if (it == ReaderProblem.Unsupported && ui.result.file?.let(::documentFormat) in setOf(DocumentFormat.Markdown, DocumentFormat.PlainText)) ReaderProblem.WebOnly else it
-                }
                 ReaderError(problem, title, ui.online, ui.working, origin,
                     onRetry = vm::retry, onBack = onBack, onSettings = onSettings,
                     onWeb = { webConfirm = true }, onExternal = { external(false) }, onShare = { external(true) }, onDownload = ::download)
@@ -214,12 +227,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
         }) { Text("Open in browser") } }, dismissButton = { TextButton(onClick = { webConfirm = false }) { Text("Stay here") } })
 }
 
-@Composable
-private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, busy: Boolean, origin: SessionTab,
-    onRetry: () -> Unit, onBack: () -> Unit, onSettings: () -> Unit, onWeb: () -> Unit,
-    onExternal: () -> Unit, onShare: () -> Unit, onDownload: () -> Unit,
-) {
-    val (title, body) = when (problem) {
+private fun readerErrorText(problem: ReaderProblem, file: String): Pair<String, String> = when (problem) {
         ReaderProblem.Offline -> "You’re offline" to "Connect to open $file. Your place in the session is safe."
         ReaderProblem.Expired -> "This file link expired" to "Refresh the session’s file list and try its latest link. If it still fails, open the session on the web."
         ReaderProblem.Denied -> "You don’t have access" to "This account can’t read the file. Check your account in Settings or ask the file owner for access."
@@ -230,11 +238,18 @@ private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, b
         ReaderProblem.NoViewer -> "No compatible viewer found" to "Install a compatible Android app, download the file, or share it. Markdown and plain text open here."
         ReaderProblem.WebOnly -> "This document lives on the web" to "Open app.devin.ai in your browser to read the document. Your session stays here."
         ReaderProblem.Transient -> "Couldn’t load this file" to "Try again without leaving the session. Your reading position is kept for the same document version."
-    }
+}
+
+@Composable
+private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, busy: Boolean, origin: SessionTab,
+    onRetry: () -> Unit, onBack: () -> Unit, onSettings: () -> Unit, onWeb: () -> Unit,
+    onExternal: () -> Unit, onShare: () -> Unit, onDownload: () -> Unit,
+) {
+    val (title, body) = readerErrorText(problem, file)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Icon(Icons.Outlined.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
         Spacer(Modifier.height(20.dp))
-        Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
+        Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Spacer(Modifier.height(12.dp))
         Text(body, style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(20.dp))
