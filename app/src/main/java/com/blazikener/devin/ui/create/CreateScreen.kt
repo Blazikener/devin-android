@@ -172,12 +172,7 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
         },
     ) { padding ->
         if (busy) {
-            // Replaced by the shared launch cue once the Home implementation is available.
-            Column(Modifier.padding(padding).fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Text("Starting session", Modifier.padding(24.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.headlineSmall)
-                Text("Your task is on its way.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            if (submission.submitting) SessionLaunchCue(Modifier.padding(padding).fillMaxSize())
         } else Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = DevinDimens.screenPadding).padding(top = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
