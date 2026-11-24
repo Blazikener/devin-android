@@ -288,6 +288,7 @@ fun HomeScreen(
                 ) {
                     warning?.let { attempt ->
                         CreateRecoveryWarning(
+                            attempt = attempt,
                             onCheckRecents = onCheckSessions,
                             onDismiss = { scope.launch { g.createGate.dismiss(attempt); confirmation = null } },
                             onRetry = { send(attempt) },

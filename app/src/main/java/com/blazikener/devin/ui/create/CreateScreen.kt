@@ -213,27 +213,17 @@ fun CreateScreen(
                 Text("Give it a good start.", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
                 Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (submission.uncertain) {
-                val retryDraft = submission.pendingDraft ?: form
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "This session may already have started. Check Sessions before retrying.",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
-                    )
-                    submission.pendingDraft?.let { Text("Previous task: ${it.prompt}", style = MaterialTheme.typography.bodyMedium) }
-                    TextButton(onClick = onCheckSessions) { Text("Check Sessions") }
-                    TextButton(onClick = vm::dismissWarning) { Text("Dismiss warning") }
-                    TextButton(
-                        onClick = {
-                            if (attachmentVm.uploads.items.value.isEmpty()) {
-                                focus.clearFocus()
-                                vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
-                            }
-                        },
-                        enabled = retryDraft.prompt.isNotBlank() && uploads.isEmpty() && retryDraft.hasValidAcuLimit,
-                    ) { Text("Retry anyway") }
-                }
+            submission.confirmation?.let { attempt ->
+                CreateRecoveryWarning(
+                    attempt = attempt,
+                    onCheckRecents = onCheckSessions,
+                    onDismiss = vm::dismissWarning,
+                    onRetry = if (uploads.isEmpty()) ({
+                        focus.clearFocus()
+                        vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
+                    }) else null,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                )
             }
             DevinOutlinedSurface(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
