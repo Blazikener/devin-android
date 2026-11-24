@@ -162,7 +162,7 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
-                            scope.launch { g.createGate.forgetAll() }
+                            g.applicationScope.launch { g.createGate.forgetAll() }
                             nav.clearProtectedNavigation()
                         })
                     }
