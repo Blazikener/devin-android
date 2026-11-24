@@ -1,8 +1,14 @@
 package com.blazikener.devin.ui.home
 
 import androidx.lifecycle.viewModelScope
+import com.blazikener.devin.Launch
+import com.blazikener.devin.savedSessionOnLaunch
+import com.blazikener.devin.data.CreateAttempt
+import com.blazikener.devin.data.CreateAttemptStore
+import com.blazikener.devin.data.CreateSessionGate
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.Session
+import com.blazikener.devin.data.createFingerprint
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,7 +25,9 @@ class HomeLaunchViewModelTest {
     private val models = mutableListOf<HomeLaunchViewModel>()
     @Before fun setUp() = Dispatchers.setMain(StandardTestDispatcher())
     @After fun tearDown() { models.forEach { it.viewModelScope.cancel() }; Dispatchers.resetMain() }
-    private fun model(create: suspend (CreateSessionRequest) -> Session) = HomeLaunchViewModel(create).also { models += it }
+    private fun model(store: FakeAttempts = FakeAttempts(), create: suspend (CreateSessionRequest) -> Session) =
+        model(CreateSessionGate(store, create))
+    private fun model(gate: CreateSessionGate) = HomeLaunchViewModel(gate).also { models += it }
 
     @Test fun rapidTapsAndBlankPromptsNeverCreateDuplicateWork() = runTest {
         val response = CompletableDeferred<Session>()
@@ -60,8 +68,105 @@ class HomeLaunchViewModelTest {
         assertEquals(1, calls)
         vm.start(request)
         runCurrent()
+        assertEquals(1, calls)
+        val pending = checkNotNull(vm.state.value.confirmation)
+        vm.retryAnyway(pending)
+        runCurrent()
         assertEquals("retry-success", vm.state.value.createdId)
-        vm.consumeCreated()
+        vm.consumeCreated("retry-success")
+        runCurrent()
         assertEquals(HomeLaunchState(), vm.state.value)
+    }
+
+    @Test fun coldHomeObservesPendingAttemptAndNeverRepeatsItsPromptSilently() = runTest {
+        val store = FakeAttempts()
+        var calls = 0
+        val original = model(store) { calls++; CompletableDeferred<Session>().await() }
+        original.start(CreateSessionRequest("An interrupted task"))
+        runCurrent()
+        original.viewModelScope.cancel()
+        runCurrent()
+        val restored = model(store) { calls++; Session("duplicate") }
+        val pending = restored.attempts.value.single()
+        assertFalse(pending.dismissed)
+        assertNull(pending.sessionId)
+        restored.start(CreateSessionRequest("  An interrupted task  "))
+        runCurrent()
+        assertEquals(pending, restored.state.value.confirmation)
+        assertEquals(1, calls)
+    }
+
+    @Test fun dismissAndClearDoNotBlockAnUnrelatedTaskOrSilentlyRepeatTheOldOne() = runTest {
+        var calls = 0
+        val gate = CreateSessionGate(FakeAttempts(), { request ->
+            calls++
+            if (calls == 1) throw IOException("Uncertain")
+            Session(request.prompt)
+        })
+        val vm = model(gate)
+        val old = CreateSessionRequest("Old task")
+        vm.start(old)
+        runCurrent()
+        vm.dismiss(gate.attempts.value.single())
+        runCurrent()
+        val dismissed = gate.attempts.value.single()
+        assertTrue(dismissed.dismissed)
+        vm.start(old)
+        runCurrent()
+        assertEquals(dismissed, vm.state.value.confirmation)
+        assertEquals(1, calls)
+        vm.start(CreateSessionRequest("Unrelated task"))
+        runCurrent()
+        assertEquals("Unrelated task", vm.state.value.createdId)
+        vm.consumeCreated("Unrelated task")
+        runCurrent()
+        vm.clear(dismissed)
+        runCurrent()
+        assertTrue(gate.attempts.value.isEmpty())
+        vm.start(old)
+        runCurrent()
+        assertEquals("Old task", vm.state.value.createdId)
+        assertEquals(3, calls)
+    }
+
+    @Test fun theAppScopedGatePreventsConcurrentStartsAcrossHomeInstances() = runTest {
+        val response = CompletableDeferred<Session>()
+        var calls = 0
+        val gate = CreateSessionGate(FakeAttempts(), { calls++; response.await() })
+        val first = model(gate)
+        val second = model(gate)
+        first.start(CreateSessionRequest("First"))
+        runCurrent()
+        assertTrue(second.inFlight.value)
+        second.start(CreateSessionRequest("Second"))
+        runCurrent()
+        assertEquals(1, calls)
+        assertNotNull(second.state.value.error)
+        response.complete(Session("first"))
+        runCurrent()
+        assertFalse(second.inFlight.value)
+    }
+
+    @Test fun savedSuccessOpensWithoutPostingAndLaunchRecoveryNeverOverridesExplicitIntents() = runTest {
+        val saved = CreateAttempt(createFingerprint("Known task"), 1, sessionId = "known")
+        val vm = model(FakeAttempts(listOf(saved))) { error("Must not create again") }
+        assertEquals("known", savedSessionOnLaunch(null, "home", vm.attempts.value))
+        assertNull(savedSessionOnLaunch(Launch.NewSession("Shared task"), "home", vm.attempts.value))
+        assertNull(savedSessionOnLaunch(Launch.OpenSession("linked"), "home", vm.attempts.value))
+        assertNull(savedSessionOnLaunch(null, "settings", vm.attempts.value))
+        vm.start(CreateSessionRequest("Known task"))
+        runCurrent()
+        assertEquals("known", vm.state.value.createdId)
+        vm.consumeCreated("known")
+        runCurrent()
+        assertTrue(vm.attempts.value.isEmpty())
+    }
+
+    private class FakeAttempts(private var records: List<CreateAttempt> = emptyList()) : CreateAttemptStore {
+        override fun read() = records
+        override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?): Boolean {
+            records = attempts
+            return true
+        }
     }
 }

@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateResult
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.DraftAttachment
 import com.blazikener.devin.data.NewSessionDraft
@@ -157,12 +158,15 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     }
 
     fun create() {
+        if (busy || created) return
         val prompt = form.prompt
         if (prompt.isBlank()) { error = "Tell Devin what to do"; return }
         busy = true; error = null
         scope.launch {
             runCatching {
-                g.api.createSession(
+                val snapshot = form
+                val version = g.settings.saveNewSessionDraft(snapshot)
+                when (val result = g.createGate.submit(
                     CreateSessionRequest(
                         prompt = prompt.trim(),
                         title = form.title.trim().ifEmpty { null },
@@ -173,12 +177,16 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                         attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
                         createAsUserId = settings.createAsUserId,
                         devinMode = form.mode,
-                    )
-                )
+                    ), snapshot, version,
+                )) {
+                    is CreateResult.Open -> result.sessionId
+                    is CreateResult.NeedsConfirmation -> error("This task may already have started. Go back to Home and check sessions before retrying.")
+                    is CreateResult.Failed -> error(result.message)
+                    CreateResult.Busy -> error("A session is already starting. Please wait.")
+                }
             }.onSuccess {
                 created = true
-                g.settings.saveNewSessionDraft(NewSessionDraft())
-                onCreated(it.id)
+                onCreated(it)
             }
                 .onFailure { error = it.message; busy = false }
         }

@@ -44,6 +44,7 @@ import com.blazikener.devin.ui.theme.DevinTextStyles
 import com.blazikener.devin.ui.theme.attentionContainer
 import com.blazikener.devin.ui.theme.onAttentionContainer
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -52,15 +53,20 @@ fun HomeScreen(
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
     onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
+    onCreateRecovery: () -> Unit,
 ) {
     val context = LocalContext.current
     val g = context.graph
     val vm: SessionsViewModel = viewModel {
         SessionsViewModel(g) { SessionWatcher.markSeen(context.applicationContext, it) }
     }
-    val launcher: HomeLaunchViewModel = viewModel { HomeLaunchViewModel(g.api::createSession) }
+    val launcher: HomeLaunchViewModel = viewModel { HomeLaunchViewModel(g.createGate) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val launch by launcher.state.collectAsStateWithLifecycle()
+    val attempts by launcher.attempts.collectAsStateWithLifecycle()
+    val globalBusy by launcher.inFlight.collectAsStateWithLifecycle()
+    val busy = launch.busy || globalBusy
+    val recovery = if (busy) null else launch.confirmation ?: attempts.firstOrNull { !it.dismissed }
     val account by g.auth.account.collectAsStateWithLifecycle()
     val settings by g.settings.settings.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -73,7 +79,8 @@ fun HomeScreen(
     val mode = if (modeChosen) chosenMode else settings.defaultMode
     var showModePicker by rememberSaveable { mutableStateOf(false) }
     val scroll = rememberScrollState()
-    LaunchedEffect(launch.error) { if (launch.error != null) scroll.scrollTo(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(launch.error, recovery) { if (launch.error != null || recovery != null) scroll.scrollTo(0) }
 
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -89,21 +96,23 @@ fun HomeScreen(
         launch.createdId?.let { id ->
             prompt = ""
             modeChosen = false
-            launcher.consumeCreated()
             onOpen(id) // Never wait for the decorative turn to finish.
+            launcher.consumeCreated(id)
         }
     }
-    fun send() {
-        if (prompt.isBlank() || launch.busy) return
-        keyboard?.hide()
-        launcher.start(CreateSessionRequest(
+    fun request() = CreateSessionRequest(
             prompt = prompt.trim(),
             maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
             createAsUserId = settings.createAsUserId,
             devinMode = mode,
-        ))
+        )
+    fun send() {
+        if (prompt.isBlank() || busy) return
+        keyboard?.hide()
+        scope.launch { scroll.scrollTo(0) }
+        launcher.start(request())
     }
-    fun openCreate() { if (!launch.busy) onNewForm(prompt, createModeOverride(modeChosen, chosenMode)) }
+    fun openCreate() { if (!busy) onNewForm(prompt, createModeOverride(modeChosen, chosenMode)) }
 
     DevinRootShell(
         selected = RootDestination.Home, accountName = account?.name,
@@ -118,19 +127,30 @@ fun HomeScreen(
                 if (!(compact && imeVisible)) DevinTopBar(
                     title = "Devin",
                     navigationIcon = { DevinIconButton("Open menu", Icons.Outlined.Menu, openMenu) },
-                    actions = { DevinIconButton("New session", Icons.Outlined.Add, ::openCreate, enabled = !launch.busy) },
+                    actions = { DevinIconButton("New session", Icons.Outlined.Add, ::openCreate, enabled = !busy) },
                 )
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp)) {
+                    recovery?.let { attempt ->
+                        HomeCreateRecovery(
+                            prompt = attempt.submitted?.request?.prompt.orEmpty(),
+                            hasSession = attempt.sessionId != null,
+                            canRetry = attempt.submitted != null && prompt.isNotBlank() && attempt.matches(prompt) && !busy,
+                            onOpen = { attempt.sessionId?.let(launcher::openSaved) },
+                            onCheck = { keyboard?.hide(); onCreateRecovery() },
+                            onDismiss = { launcher.dismiss(attempt) },
+                            onRetry = { keyboard?.hide(); launcher.retryAnyway(attempt) },
+                        )
+                    }
                     launch.error?.let { error ->
                         Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
                             Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = ::send, enabled = prompt.isNotBlank()) { Text("Retry") }
+                            if (recovery == null) TextButton(onClick = ::send, enabled = prompt.isNotBlank() && !busy) { Text("Retry") }
                         }
                     }
-                    if (launch.busy) {
+                    if (busy) {
                         SessionLaunchCue(Modifier.fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp))
                     } else if (!imeVisible) {
                         Spacer(Modifier.height(if (compact) 8.dp else 20.dp))
@@ -144,7 +164,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(24.dp))
                     }
-                    if (!launch.busy) {
+                    if (!busy) {
                         val feed = ui.feed
                         when {
                             feed.loading -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 16.dp))
@@ -187,15 +207,15 @@ fun HomeScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    val compactComposer = compact && (imeVisible || launch.busy)
+                    val compactComposer = compact && (imeVisible || busy)
                     DevinOutlinedSurface(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(if (compactComposer) 4.dp else 12.dp)) {
                             // Keep the same field and focus node when the IME changes the layout.
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             if (compactComposer) DevinIconButton("Attach context and session options", Icons.Outlined.Add,
-                                ::openCreate, enabled = !launch.busy)
+                                ::openCreate, enabled = !busy)
                             BasicTextField(
-                                prompt, { prompt = it }, enabled = !launch.busy,
+                                prompt, { prompt = it }, enabled = !busy,
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(4.dp)
                                     .semantics { contentDescription = "Task for Devin" },
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
@@ -212,22 +232,27 @@ fun HomeScreen(
                                     }
                                 },
                             )
-                            if (compactComposer) FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
+                            if (prompt.isNotEmpty()) DevinIconButton("Clear task", Icons.Outlined.Close, {
+                                val matching = attempts.firstOrNull { it.matches(prompt) }
+                                prompt = ""
+                                launcher.clear(matching)
+                            }, enabled = !busy)
+                            if (compactComposer) FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !busy, modifier = Modifier.size(48.dp)) {
                                 Icon(Icons.Filled.ArrowUpward, "Start session")
                             }
                             }
                             if (!compactComposer) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 DevinIconButton("Attach context and session options", Icons.Outlined.Add,
-                                ::openCreate, enabled = !launch.busy)
+                                ::openCreate, enabled = !busy)
                                 val label = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
-                                TextButton(onClick = { showModePicker = true }, enabled = !launch.busy,
+                                TextButton(onClick = { showModePicker = true }, enabled = !busy,
                                     modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Session mode: " + label }) {
                                     Text(label)
                                     Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
                                 }
                                 Spacer(Modifier.weight(1f))
-                                FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
+                                FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !busy, modifier = Modifier.size(48.dp)) {
                                     Icon(Icons.Filled.ArrowUpward, "Start session")
                                 }
                             }
@@ -249,6 +274,41 @@ fun HomeScreen(
                 }
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HomeCreateRecovery(
+    prompt: String,
+    hasSession: Boolean,
+    canRetry: Boolean,
+    onOpen: () -> Unit,
+    onCheck: () -> Unit,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = attentionContainer,
+        contentColor = onAttentionContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Column(Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
+            Text(if (hasSession) "Your session was created" else "A session may already have started",
+                style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
+            if (prompt.isNotBlank()) Text(prompt, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(if (hasSession) "Open the session instead of starting the same task again." else
+                "Check sessions before starting the same task again. You can still start a different task.",
+                style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hasSession) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open session") }
+                TextButton(onClick = onCheck, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check sessions") }
+                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Dismiss") }
+                if (!hasSession && canRetry) OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
+            }
         }
     }
 }

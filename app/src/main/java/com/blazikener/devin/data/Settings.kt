@@ -1,10 +1,15 @@
 package com.blazikener.devin.data
 
 import android.content.Context
+import android.content.SharedPreferences
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 @Serializable
 data class DraftAttachment(val name: String, val url: String)
@@ -97,12 +102,47 @@ class SettingsStore(context: Context) {
         // Older versions stored only the prompt, as plain text under another key.
         return fresh.copy(prompt = drafts.getString(LEGACY_NEW_SESSION_KEY, "").orEmpty())
     }
-    fun saveNewSessionDraft(d: NewSessionDraft) {
-        drafts.edit().apply {
-            remove(LEGACY_NEW_SESSION_KEY)
-            if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
-        }.apply()
+    internal fun saveNewSessionDraft(d: NewSessionDraft): String = synchronized(drafts) {
+        val previous = drafts.getString(DRAFT_VERSION_KEY, null)
+        if (previous != null && d == newSessionDraft()) return@synchronized previous
+        val version = UUID.randomUUID().toString()
+        drafts.edit().writeNewSessionDraft(d).putString(DRAFT_VERSION_KEY, version).apply()
+        version
     }
+
+    private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
+        remove(LEGACY_NEW_SESSION_KEY)
+        if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
+    }
+
+    internal val createAttempts: CreateAttemptStore = object : CreateAttemptStore {
+        override fun read(): List<CreateAttempt> {
+            drafts.getString(CREATE_ATTEMPTS_KEY, null)?.let { return json.decodeFromString(it) }
+            val legacy = drafts.getString(CREATE_ATTEMPT_KEY, null) ?: return emptyList()
+            val draft = newSessionDraft()
+            val sessionId = legacy.ifEmpty { null }
+            val submitted = if (sessionId == null) {
+                CreateSnapshot(draft.toCreateRequest(null), draft, drafts.getString(DRAFT_VERSION_KEY, LEGACY_DRAFT_VERSION)!!)
+            } else null
+            return listOf(CreateAttempt(createFingerprint(draft.prompt), 0, sessionId, submitted = submitted))
+        }
+
+        override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?): Boolean =
+            withContext(Dispatchers.IO) {
+                synchronized(drafts) {
+                    drafts.edit().apply {
+                        remove(CREATE_ATTEMPT_KEY)
+                        if (attempts.isEmpty()) remove(CREATE_ATTEMPTS_KEY)
+                        else putString(CREATE_ATTEMPTS_KEY, json.encodeToString(attempts))
+                        if (consumeDraftVersion != null && consumeDraftVersion == drafts.getString(DRAFT_VERSION_KEY, LEGACY_DRAFT_VERSION)) {
+                            writeNewSessionDraft(NewSessionDraft())
+                            remove(DRAFT_VERSION_KEY)
+                        }
+                    }.commit()
+                }
+            }
+    }
+
     fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }
 
     // Messages that failed to send, as JSON per session, so they can still be retried after leaving the chat.
@@ -115,6 +155,10 @@ class SettingsStore(context: Context) {
     private companion object {
         const val NEW_SESSION_KEY = "__new_session__"
         const val LEGACY_NEW_SESSION_KEY = "__new__"
+        const val CREATE_ATTEMPT_KEY = "__new_session_attempt__"
+        const val CREATE_ATTEMPTS_KEY = "__create_attempts__"
+        const val DRAFT_VERSION_KEY = "__new_session_version__"
+        const val LEGACY_DRAFT_VERSION = "legacy"
     }
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)
