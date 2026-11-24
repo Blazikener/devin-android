@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateSnapshot
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.data.createFingerprint
@@ -151,12 +152,19 @@ fun HomeScreen(
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp)) {
                     recovery?.let { attempt ->
                         HomeCreateRecovery(
-                            prompt = attempt.submitted?.request?.prompt.orEmpty(),
+                            submitted = attempt.submitted,
                             hasSession = attempt.sessionId != null,
-                            canRetry = attempt.submitted != null && prompt.isNotBlank() && attempt.matches(prompt) && !busy,
+                            canRetry = attempt.submitted != null && !busy,
                             onOpen = { launcher.openSaved(attempt) },
                             onCheck = { keyboard?.hide(); onCreateRecovery() },
                             onDismiss = { launcher.dismiss(attempt) },
+                            onClear = {
+                                if (attempt.matches(prompt)) {
+                                    prompt = ""
+                                    modeChosen = false
+                                }
+                                launcher.clear(attempt)
+                            },
                             onRetry = { keyboard?.hide(); launcher.retryAnyway(attempt) },
                         )
                     }
@@ -294,17 +302,19 @@ fun HomeScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeCreateRecovery(
-    prompt: String,
+    submitted: CreateSnapshot?,
     hasSession: Boolean,
     canRetry: Boolean,
     onOpen: () -> Unit,
     onCheck: () -> Unit,
     onDismiss: () -> Unit,
+    onClear: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    var reviewOriginal by rememberSaveable(submitted?.request?.prompt) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         shape = MaterialTheme.shapes.medium,
@@ -315,16 +325,40 @@ private fun HomeCreateRecovery(
         Column(Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
             Text(if (hasSession) "Your session was created" else "A session may already have started",
                 style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
-            if (prompt.isNotBlank()) Text(prompt, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            submitted?.request?.let { original ->
+                Text("Original task", style = MaterialTheme.typography.labelMedium)
+                Text(original.prompt, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "Mode: ${DEVIN_MODES.firstOrNull { it.first == original.devinMode }?.second ?: original.devinMode ?: "Default"}" +
+                        " · ACU limit: ${original.maxAcuLimit?.toString() ?: "Default"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Text(if (hasSession) "Open the session instead of starting the same task again." else
                 "Check sessions before starting the same task again. You can still start a different task.",
                 style = MaterialTheme.typography.bodyMedium)
+            if (!hasSession && canRetry) Text(
+                "Start again uses the original task and settings, not your current draft. It may create another session.",
+                style = MaterialTheme.typography.bodySmall,
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (hasSession) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open session") }
                 TextButton(onClick = onCheck, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check sessions") }
+                if (submitted != null) TextButton(onClick = { reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review task and settings") }
                 TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Dismiss") }
+                if (!hasSession) TextButton(onClick = onClear, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
                 if (!hasSession && canRetry) OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
             }
+        }
+    }
+    if (reviewOriginal && submitted != null) ModalBottomSheet(onDismissRequest = { reviewOriginal = false }) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Original task and settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            CreateRequestDetails(submitted)
+            TextButton(onClick = { reviewOriginal = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Close") }
         }
     }
 }
