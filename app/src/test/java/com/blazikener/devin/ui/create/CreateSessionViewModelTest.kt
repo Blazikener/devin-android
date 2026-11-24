@@ -344,6 +344,25 @@ class CreateSessionViewModelTest {
         assertEquals(newer, attempts.draft)
     }
 
+    @Test
+    fun clearConsumesOnlyTheRemovedAttemptsDraftVersion() = runTest {
+        val shared = gate { throw ApiException(503, "Server error") }
+        val request = draft.toCreateRequest(null)
+        attempts.saveDraft(draft, "first")
+        shared.submit(request, draft, "first")
+        shared.clear(shared.attempts.value.single())
+        assertTrue(shared.attempts.value.isEmpty())
+        assertEquals(NewSessionDraft(), attempts.draft)
+
+        attempts.saveDraft(draft, "second")
+        shared.submit(request, draft, "second")
+        val newer = draft.copy(prompt = "Newer share")
+        attempts.saveDraft(newer, "third")
+        shared.clear(shared.attempts.value.single())
+        assertTrue(shared.attempts.value.isEmpty())
+        assertEquals(newer, attempts.draft)
+    }
+
     private class FakeCreateAttempts : CreateAttemptStore {
         private var records = emptyList<CreateAttempt>()
         var draft: NewSessionDraft? = null
