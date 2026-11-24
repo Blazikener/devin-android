@@ -344,10 +344,11 @@ private fun HomeCreateRecovery(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (hasSession) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open session") }
                 TextButton(onClick = onCheck, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check sessions") }
-                if (submitted != null) TextButton(onClick = { reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review task and settings") }
+                if (submitted != null) TextButton(onClick = { reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (!hasSession && canRetry) "Review retry" else "Review task and settings")
+                }
                 TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Dismiss") }
                 if (!hasSession) TextButton(onClick = onClear, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
-                if (!hasSession && canRetry) OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
             }
         }
     }
@@ -357,7 +358,9 @@ private fun HomeCreateRecovery(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Original task and settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            if (!hasSession) Text("Starting this task again may create a duplicate session. These original settings will be sent, not your current edits.")
             CreateRequestDetails(submitted)
+            if (!hasSession && canRetry) OutlinedButton(onClick = { reviewOriginal = false; onRetry() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
             TextButton(onClick = { reviewOriginal = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Close") }
         }
     }
