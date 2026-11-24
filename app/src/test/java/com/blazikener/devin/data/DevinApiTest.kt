@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayOutputStream
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -162,6 +163,18 @@ class DevinApiTest {
             val failure = runCatching { api.download(server.url("/file").toString(), maxBytes = 5) }.exceptionOrNull()
             assertTrue(failure is DocumentTooLargeException)
         }
+    }
+
+    @Test
+    fun downloadRejectsHttp2StreamShorterThanDeclaredLength() = runBlocking {
+        server.protocols = listOf(Protocol.H2_PRIOR_KNOWLEDGE)
+        val http2 = DevinApi({ server.url("/").toString() }, { "cog_x" }, { "org-1" },
+            OkHttpClient.Builder().protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE)).build())
+        server.enqueue(MockResponse().setBody("part").setHeader("Content-Length", 10))
+
+        val failure = runCatching { http2.download(server.url("/report.md").toString(), 20) }.exceptionOrNull()
+
+        assertTrue("Incomplete content must not become a saved document", failure is java.io.IOException)
     }
 
     @Test

@@ -176,6 +176,9 @@ class DevinApi(
                     if (total > maxBytes) throw DocumentTooLargeException()
                     out.write(buffer, 0, count)
                 }
+                if (body.contentLength() >= 0 && total != body.contentLength()) {
+                    throw IOException("Incomplete download")
+                }
                 out.toByteArray()
             }
         }
