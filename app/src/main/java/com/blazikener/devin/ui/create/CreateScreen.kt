@@ -64,8 +64,9 @@ fun CreateScreen(
         mutableStateOf(!initialPrompt.isNullOrBlank() && saved.prompt.isNotBlank() && saved.prompt.trim() != initialPrompt.trim())
     }
     var form by rememberSaveable(stateSaver = DraftSaver) {
-        mutableStateOf(saved.withCreateArguments(if (sharedChoice || saved.prompt.trim() == initialPrompt?.trim()) null else initialPrompt, modeOverride))
+        mutableStateOf(saved.withCreateArguments(if (sharedChoice || saved.prompt.trim() == initialPrompt?.trim()) null else initialPrompt, modeOverride).withVersionFrom(saved))
     }
+    var ownsDraft by rememberSaveable { mutableStateOf(graph.settings.hasNewSessionDraft() || !form.sameContentAs(saved)) }
     var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
     val vm: CreateSessionViewModel = viewModel {
         CreateSessionViewModel(graph.api::createSession, graph.settings.createAttempts)
@@ -79,18 +80,26 @@ fun CreateScreen(
 
     // Persist synchronously at the edit boundary, including mode-only and ACU-only drafts.
     fun update(next: NewSessionDraft) {
-        form = next
-        if (vm.ui.value.sessionId == null && next != lastSavedForm) {
-            graph.settings.saveNewSessionDraft(next)
-            lastSavedForm = next
+        if (!next.sameContentAs(form)) ownsDraft = true
+        form = next.withVersionFrom(form)
+        if (ownsDraft && vm.ui.value.sessionId == null && form != lastSavedForm) {
+            graph.settings.saveNewSessionDraft(form)
+            lastSavedForm = form
         }
         vm.clearError()
     }
     // Arguments are saved once per entry; Back and rotation must not rewrite a newer draft.
     LaunchedEffect(Unit) {
-        if (vm.ui.value.sessionId == null && (form != lastSavedForm || (!graph.settings.hasNewSessionDraft() && !form.isEmpty))) {
-            graph.settings.saveNewSessionDraft(form)
-            lastSavedForm = form
+        if (vm.ui.value.sessionId == null) {
+            if (graph.settings.wasNewSessionDraftConsumed(form)) {
+                form = graph.settings.newSessionDraft()
+                lastSavedForm = form
+                ownsDraft = graph.settings.hasNewSessionDraft()
+            }
+            if (ownsDraft && (form != lastSavedForm || !graph.settings.hasNewSessionDraft())) {
+                graph.settings.saveNewSessionDraft(form)
+                lastSavedForm = form
+            }
         }
     }
     LaunchedEffect(submission.sessionId) {
@@ -333,10 +342,18 @@ fun CreateScreen(
         dismissButton = { TextButton(onClick = { sharedChoice = false }) { Text("Keep draft") } },
     )
     if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false }, title = { Text("Clear this draft?") }, text = { Text("The task, context and setup choices will be removed.") },
+        onDismissRequest = { confirmClear = false }, title = { Text("Clear this draft?") }, text = {
+            Text(if (submission.uncertain) "Check Sessions first: the previous session may already have started. Clearing removes this draft and resolves the warning so you can start a new task."
+            else "The task, context and setup choices will be removed.")
+        },
         confirmButton = { TextButton(onClick = {
             attachmentVm.uploads.clear()
-            update(NewSessionDraft(acu = settings.defaultAcuLimit?.toString().orEmpty(), mode = settings.defaultMode))
+            graph.settings.consumeNewSessionDraft(form)
+            form = NewSessionDraft(acu = settings.defaultAcuLimit?.toString().orEmpty(), mode = settings.defaultMode)
+            lastSavedForm = form
+            ownsDraft = false
+            vm.resolveUncertain()
+            vm.clearError()
             confirmClear = false
         }) { Text("Clear draft") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },

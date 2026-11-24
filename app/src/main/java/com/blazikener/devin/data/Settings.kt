@@ -25,6 +25,7 @@ data class NewSessionDraft(
     val attachments: List<DraftAttachment> = emptyList(),
     // Idempotency marker for a Home/share argument already incorporated into this draft.
     @SerialName("last_initial_prompt") val lastInitialPrompt: String? = null,
+    @SerialName("draft_version") val draftVersion: String? = null,
 ) {
     val isEmpty: Boolean
         get() = prompt.isBlank() && title.isBlank() && tags.isBlank() && acu.isBlank() && mode == null && repos.isEmpty() && playbookId == null && attachments.isEmpty()
@@ -87,6 +88,7 @@ class SettingsStore(context: Context) {
 
     // Per-session drafts survive process death so a half-written reply is never lost.
     private val drafts = context.getSharedPreferences("drafts", Context.MODE_PRIVATE)
+    private val draftLock = Any()
     fun draft(sessionId: String): String = drafts.getString(sessionId, "") ?: ""
     fun saveDraft(sessionId: String, text: String) {
         drafts.edit().apply { if (text.isBlank()) remove(sessionId) else putString(sessionId, text) }.apply()
@@ -105,7 +107,23 @@ class SettingsStore(context: Context) {
         return fresh.copy(prompt = drafts.getString(LEGACY_NEW_SESSION_KEY, "").orEmpty())
     }
     fun saveNewSessionDraft(d: NewSessionDraft) {
-        drafts.edit().writeNewSessionDraft(d).apply()
+        synchronized(draftLock) { drafts.edit().writeNewSessionDraft(d).apply() }
+    }
+
+    internal fun wasNewSessionDraftConsumed(draft: NewSessionDraft): Boolean =
+        draft.versionKey in drafts.getStringSet(CONSUMED_DRAFTS_KEY, emptySet()).orEmpty()
+
+    /** Clear/success consumes only this version, never a newer shared task in the global slot. */
+    internal fun consumeNewSessionDraft(draft: NewSessionDraft) = synchronized(draftLock) {
+        drafts.edit().consumeDraft(draft).apply()
+    }
+
+    private fun SharedPreferences.Editor.consumeDraft(draft: NewSessionDraft) = apply {
+        putStringSet(CONSUMED_DRAFTS_KEY, drafts.getStringSet(CONSUMED_DRAFTS_KEY, emptySet()).orEmpty() + draft.versionKey)
+        if (hasNewSessionDraft() && newSessionDraft().versionKey == draft.versionKey) {
+            remove(NEW_SESSION_KEY)
+            remove(LEGACY_NEW_SESSION_KEY)
+        }
     }
 
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
@@ -114,6 +132,8 @@ class SettingsStore(context: Context) {
     }
 
     internal val createAttempts: CreateAttemptStore = object : CreateAttemptStore {
+        override fun isConsumed(draft: NewSessionDraft) = wasNewSessionDraftConsumed(draft)
+
         override fun read(): CreateAttempt? = when (val value = drafts.getString(CREATE_ATTEMPT_KEY, null)) {
             null -> null
             "" -> CreateAttempt.Pending
@@ -122,18 +142,36 @@ class SettingsStore(context: Context) {
 
         override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean =
             withContext(Dispatchers.IO) {
-                drafts.edit().apply {
-                    when (attempt) {
-                        null -> remove(CREATE_ATTEMPT_KEY)
-                        CreateAttempt.Pending -> putString(CREATE_ATTEMPT_KEY, "")
-                        is CreateAttempt.Created -> putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
-                    }
-                    if (draft != null) writeNewSessionDraft(draft)
-                }.commit()
+                synchronized(draftLock) {
+                    val ownsAttempt = draft == null || drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) == draft.versionKey
+                    drafts.edit().apply {
+                        when (attempt) {
+                            null -> if (ownsAttempt) {
+                                remove(CREATE_ATTEMPT_KEY)
+                                remove(CREATE_ATTEMPT_VERSION_KEY)
+                            }
+                            CreateAttempt.Pending -> {
+                                putString(CREATE_ATTEMPT_KEY, "")
+                                putString(CREATE_ATTEMPT_VERSION_KEY, draft?.versionKey)
+                                // A newer share may have saved while this POST was being scheduled.
+                                if (draft != null && (!hasNewSessionDraft() || newSessionDraft().versionKey == draft.versionKey)) {
+                                    writeNewSessionDraft(draft)
+                                }
+                            }
+                            is CreateAttempt.Created -> {
+                                if (ownsAttempt) putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
+                                if (draft != null) consumeDraft(draft)
+                            }
+                        }
+                    }.commit()
+                }
             }
 
         override fun acknowledgeCreated(sessionId: String) {
-            if (read() == CreateAttempt.Created(sessionId)) drafts.edit().remove(CREATE_ATTEMPT_KEY).apply()
+            synchronized(draftLock) {
+                if (read() == CreateAttempt.Created(sessionId)) drafts.edit()
+                    .remove(CREATE_ATTEMPT_KEY).remove(CREATE_ATTEMPT_VERSION_KEY).apply()
+            }
         }
     }
     fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }
@@ -149,6 +187,8 @@ class SettingsStore(context: Context) {
         const val NEW_SESSION_KEY = "__new_session__"
         const val LEGACY_NEW_SESSION_KEY = "__new__"
         const val CREATE_ATTEMPT_KEY = "__new_session_attempt__"
+        const val CREATE_ATTEMPT_VERSION_KEY = "__new_session_attempt_version__"
+        const val CONSUMED_DRAFTS_KEY = "__consumed_new_session_drafts__"
     }
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)

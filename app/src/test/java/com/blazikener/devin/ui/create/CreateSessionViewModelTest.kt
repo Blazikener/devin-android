@@ -12,6 +12,7 @@ import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.Session
+import com.blazikener.devin.data.versionKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -250,24 +251,55 @@ class CreateSessionViewModelTest {
     @Test
     fun acknowledgingOldResultDoesNotClearANewerDraftOrAttempt() = runTest {
         attempts.write(CreateAttempt.Created("old-session"), draft)
+        val newer = draft.copy(prompt = "Newer shared task")
+        attempts.write(CreateAttempt.Pending, newer)
         attempts.acknowledgeCreated("old-session")
-        assertEquals(draft, attempts.draft)
-        attempts.write(CreateAttempt.Pending, draft)
-        attempts.acknowledgeCreated("old-session")
+        assertEquals(newer, attempts.draft)
         assertEquals(CreateAttempt.Pending, attempts.read())
+    }
+
+    @Test
+    fun clearingAfterCheckingSessionsResolvesPendingWarning() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        val vm = model { Session("new-task") }
+        assertTrue(vm.ui.value.uncertain)
+        vm.resolveUncertain()
+        runCurrent()
+        assertFalse(vm.ui.value.uncertain)
+        assertNull(attempts.read())
+        vm.submit(draft.copy(prompt = "Unrelated new task"), null)
+        runCurrent()
+        assertEquals("new-task", vm.ui.value.sessionId)
+    }
+
+    @Test
+    fun alreadyConsumedVersionCannotBeSubmittedAgain() = runTest {
+        attempts.write(CreateAttempt.Created("original"), draft)
+        val vm = model { error("Unexpected new request") }
+        vm.acknowledgeCreated("original")
+        store.clear()
+        val restored = model { error("Unexpected new request") }
+        restored.submit(draft, null)
+        runCurrent()
+        assertTrue(restored.ui.value.error.orEmpty().contains("already started"))
     }
 
     private class FakeCreateAttempts : CreateAttemptStore {
         private var attempt: CreateAttempt? = null
         var draft: NewSessionDraft? = null
         var failWrites = false
+        private val consumed = mutableSetOf<String>()
 
         override fun read() = attempt
+        override fun isConsumed(draft: NewSessionDraft) = draft.versionKey in consumed
 
         override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean {
             if (failWrites) return false
             this.attempt = attempt
-            if (draft != null) this.draft = draft
+            if (attempt is CreateAttempt.Created && draft != null) {
+                consumed += draft.versionKey
+                if (this.draft?.versionKey == draft.versionKey) this.draft = NewSessionDraft()
+            } else if (attempt == CreateAttempt.Pending && draft != null) this.draft = draft
             return true
         }
 

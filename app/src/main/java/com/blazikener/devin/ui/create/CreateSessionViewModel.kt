@@ -42,9 +42,24 @@ internal class CreateSessionViewModel(
 
     fun acknowledgeCreated(sessionId: String) = attempts.acknowledgeCreated(sessionId)
 
+    fun resolveUncertain() {
+        if (!_ui.value.uncertain || _ui.value.submitting) return
+        viewModelScope.launch {
+            if (attempts.write(null)) _ui.value = CreateSessionUi()
+        }
+    }
+
     fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false) {
         val state = _ui.value
         if (state.submitting || state.sessionId != null || state.uncertain != confirmedRetry) return
+        if (attempts.isConsumed(form)) {
+            _ui.value = state.copy(error = "This draft was already started or cleared. Clear it to start a new task.")
+            return
+        }
+        if (!confirmedRetry && attempts.read() == CreateAttempt.Pending) {
+            _ui.value = state.copy(uncertain = true)
+            return
+        }
         val prompt = form.prompt.trim()
         if (prompt.isEmpty()) {
             _ui.value = state.copy(error = "Tell Devin what to do")
@@ -77,11 +92,11 @@ internal class CreateSessionViewModel(
                 )
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null)
+                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null, form)
                 _ui.value = CreateSessionUi(error = failure.message ?: "Couldn't start the session", uncertain = !rejected)
                 return@launch
             }
-            attempts.write(CreateAttempt.Created(session.id), NewSessionDraft())
+            attempts.write(CreateAttempt.Created(session.id), form)
             _ui.value = CreateSessionUi(sessionId = session.id)
         }
     }
