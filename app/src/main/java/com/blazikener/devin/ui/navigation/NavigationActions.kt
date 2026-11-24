@@ -41,6 +41,9 @@ fun NavHostController.showSessionsFromCreateRecovery() {
         popBackStack(Routes.Home, inclusive = false)
         showSessionsRoot()
     }
+    currentBackStackEntry?.savedStateHandle?.set(
+        SessionNavigationState.SessionsRequest, SessionsRequest(filter = SessionFilter.All, recoverCreate = true).encode(),
+    )
 }
 
 fun NavHostController.clearProtectedNavigation() {

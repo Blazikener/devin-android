@@ -38,17 +38,17 @@ object SessionNavigationState {
 }
 
 /** A one-shot override on a restored list; other query/owner/scroll state stays intact. */
-data class SessionsRequest(val filter: SessionFilter? = null, val search: Boolean = false) {
-    fun encode() = "${filter?.name.orEmpty()}|$search"
+data class SessionsRequest(val filter: SessionFilter? = null, val search: Boolean = false, val recoverCreate: Boolean = false) {
+    fun encode() = "${filter?.name.orEmpty()}|$search" + if (recoverCreate) "|recover" else ""
 
     companion object {
         fun decode(value: String?): SessionsRequest? {
-            val parts = value?.split('|', limit = 2) ?: return null
-            if (parts.size != 2) return null
+            val parts = value?.split('|', limit = 3) ?: return null
+            if (parts.size !in 2..3 || (parts.size == 3 && parts[2] != "recover")) return null
             val filter = parts[0].takeIf(String::isNotEmpty)?.let { name ->
                 SessionFilter.entries.firstOrNull { it.name == name } ?: return null
             }
-            return SessionsRequest(filter, parts[1].toBooleanStrictOrNull() ?: return null)
+            return SessionsRequest(filter, parts[1].toBooleanStrictOrNull() ?: return null, parts.size == 3)
         }
     }
 }

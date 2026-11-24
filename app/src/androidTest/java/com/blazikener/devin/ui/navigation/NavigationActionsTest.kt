@@ -101,6 +101,8 @@ class NavigationActionsTest {
         nav.openCreateFromLaunch("uncertain Home task")
         nav.showSessionsFromCreateRecovery()
         assertEquals(Routes.Sessions, nav.currentDestination!!.route)
+        assertEquals(SessionsRequest(SessionFilter.All, recoverCreate = true),
+            SessionsRequest.decode(nav.currentBackStackEntry!!.savedStateHandle[SessionNavigationState.SessionsRequest]))
         nav.showHomeRoot()
         assertEquals(Routes.Home, nav.currentDestination!!.route)
         nav.showSessionsRoot()

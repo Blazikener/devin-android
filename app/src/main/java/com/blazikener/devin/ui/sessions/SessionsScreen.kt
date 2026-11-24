@@ -72,6 +72,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.text.AnnotatedString
@@ -122,6 +124,8 @@ fun SessionsScreen(
     var applied by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val listIdentity = "${ui.key.mine}|${ui.key.archived}|${ui.filter.name}|${ui.query}"
     var previousListIdentity by rememberSaveable { mutableStateOf(listIdentity) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -136,8 +140,16 @@ fun SessionsScreen(
 
     LaunchedEffect(navigationRequest) {
         navigationRequest?.let { request ->
-            request.filter?.let(vm::setFilter)
-            if (request.search) searching = true
+            if (request.recoverCreate) {
+                vm.showAllForCreateRecovery()
+                searching = false
+                focus.clearFocus()
+                keyboard?.hide()
+                listState.scrollToItem(0)
+            } else {
+                request.filter?.let(vm::setFilter)
+                if (request.search) searching = true
+            }
             onNavigationRequestHandled()
         }
     }
