@@ -2,6 +2,8 @@ package com.blazikener.devin.ui.create
 
 import com.blazikener.devin.data.DraftAttachment
 import com.blazikener.devin.data.NewSessionDraft
+import com.blazikener.devin.data.CreateAttempt
+import com.blazikener.devin.data.createFingerprint
 import com.blazikener.devin.data.json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,6 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreateSessionArgumentsTest {
+    @Test fun matchingShareKeepsUnrelatedDraftAndNeverCombinesPastItsPendingGuard() {
+        val saved = NewSessionDraft(prompt = "Unfinished task", mode = "fast", acu = "50", draftVersion = "saved")
+        val pending = listOf(CreateAttempt(createFingerprint("Shared task"), 1))
+        assertFalse(saved.needsSharedChoice("Shared task", pending))
+        assertEquals(saved, saved.seedCreateDraft("Shared task", "ultra", pending))
+        assertEquals(saved, saved.withCreateArguments("Shared task", "ultra", pending))
+    }
+
+    @Test fun acceptingUnrelatedShareNeverAppendsAnAlreadySubmittedTask() {
+        val saved = NewSessionDraft(prompt = "Submitted task", mode = "fast")
+        val pending = listOf(CreateAttempt(createFingerprint(saved.prompt), 1))
+        assertTrue(saved.needsSharedChoice("New task", pending))
+        assertEquals(saved, saved.seedCreateDraft("New task", "plan", pending))
+        val accepted = saved.withCreateArguments("New task", "plan", pending)
+        assertEquals("New task", accepted.prompt)
+        assertEquals("plan", accepted.mode)
+    }
     @Test fun cancelEditRestoreAndReopenDoesNotDuplicateHomeText() {
         val original = NewSessionDraft(prompt = "Previous context", repos = listOf("acme/app"),
             attachments = listOf(DraftAttachment("spec.md", "https://example.com/spec.md")))

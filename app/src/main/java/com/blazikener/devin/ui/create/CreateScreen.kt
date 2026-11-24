@@ -60,16 +60,18 @@ fun CreateScreen(
     val settings = graph.settings.value
     val focus = LocalFocusManager.current
     val saved = remember { graph.settings.newSessionDraft() }
+    val launchAttempts = remember { graph.createGate.attempts.value }
+    val recoveryPrompt = initialPrompt?.takeIf { prompt -> launchAttempts.any { it.matches(prompt) } }
     var sharedChoice by rememberSaveable {
-        mutableStateOf(saved.needsSharedChoice(initialPrompt))
+        mutableStateOf(saved.needsSharedChoice(initialPrompt, launchAttempts))
     }
     var form by rememberSaveable(stateSaver = DraftSaver) {
-        mutableStateOf(saved.seedCreateDraft(initialPrompt, modeOverride))
+        mutableStateOf(saved.seedCreateDraft(initialPrompt, modeOverride, launchAttempts))
     }
     var ownsDraft by rememberSaveable { mutableStateOf(graph.settings.hasNewSessionDraft() || !form.sameContentAs(saved)) }
     var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
     val vm: CreateSessionViewModel = viewModel {
-        CreateSessionViewModel(graph.createGate, form.prompt, graph.settings::wasNewSessionDraftConsumed)
+        CreateSessionViewModel(graph.createGate, form.prompt, recoveryPrompt, graph.settings::wasNewSessionDraftConsumed)
     }
     val submission by vm.ui.collectAsStateWithLifecycle()
     val busy = submission.submitting || submission.sessionId != null
@@ -215,6 +217,10 @@ fun CreateScreen(
                 Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             submission.confirmation?.let { attempt ->
+                if (recoveryPrompt != null && attempt.matches(recoveryPrompt)) Text(
+                    "The shared task has a previous attempt. Your saved draft is kept below.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 CreateRecoveryWarning(
                     attempt = attempt,
                     onCheckRecents = onCheckSessions,
@@ -332,8 +338,8 @@ fun CreateScreen(
     }
     if (sharedChoice) AlertDialog(
         onDismissRequest = { sharedChoice = false }, title = { Text("Keep your saved task?") },
-        text = { Text("There is already a task in this draft. Add the incoming task to it, or keep the draft unchanged.") },
-        confirmButton = { TextButton(onClick = { update(form.withCreateArguments(initialPrompt, modeOverride)); sharedChoice = false }) { Text("Add to draft") } },
+        text = { Text(if (launchAttempts.any { it.matches(form.prompt) }) "This draft's task may already have started. Use the incoming task as a new draft, or keep this draft unchanged." else "There is already a task in this draft. Add the incoming task to it, or keep the draft unchanged.") },
+        confirmButton = { TextButton(onClick = { update(form.withCreateArguments(initialPrompt, modeOverride, launchAttempts)); sharedChoice = false }) { Text(if (launchAttempts.any { it.matches(form.prompt) }) "Use shared task" else "Add to draft") } },
         dismissButton = { TextButton(onClick = { sharedChoice = false }) { Text("Keep draft") } },
     )
     if (confirmClear) AlertDialog(

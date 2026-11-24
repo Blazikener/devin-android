@@ -26,9 +26,9 @@ class CreateSessionViewModelTest {
     @Before fun setUp() = Dispatchers.setMain(StandardTestDispatcher())
     @After fun tearDown() { models.clear(); Dispatchers.resetMain() }
     private fun gate(create: suspend (CreateSessionRequest) -> Session) = CreateSessionGate(attempts, create)
-    private fun model(gate: CreateSessionGate, prompt: String = draft.prompt, key: String = "main") =
+    private fun model(gate: CreateSessionGate, prompt: String = draft.prompt, key: String = "main", recoveryPrompt: String? = null) =
         ViewModelProvider(models, viewModelFactory {
-            initializer { CreateSessionViewModel(gate, prompt) { it.versionKey in attempts.consumed } }
+            initializer { CreateSessionViewModel(gate, prompt, recoveryPrompt) { it.versionKey in attempts.consumed } }
         })[key, CreateSessionViewModel::class.java]
 
     @Test fun persistsBeforePostAndIgnoresDuplicateTapsWhileStarting() = runTest {
@@ -61,6 +61,30 @@ class CreateSessionViewModelTest {
         runCurrent()
         assertEquals(1, calls)
         assertTrue(restored.ui.value.needsRetryConfirmation(draft))
+    }
+
+    @Test fun matchingSharePrefersItsAttemptWithoutReplacingUnrelatedDraftEvenIfDismissed() = runTest {
+        var calls = 0
+        val g = gate { calls++; throw ApiException(500, "Uncertain") }
+        g.submit(draft.toCreateRequest(null), draft, draft.versionKey)
+        val shared = draft.copy(prompt = "Shared task", draftVersion = "shared")
+        g.submit(shared.toCreateRequest(null), shared, shared.versionKey)
+        g.dismiss(g.attempts.value.first())
+        val vm = model(g, recoveryPrompt = shared.prompt)
+        assertTrue(vm.ui.value.confirmation!!.matches(shared.prompt))
+        assertEquals(draft, attempts.editable)
+        assertEquals(2, calls)
+    }
+
+    @Test fun matchingShareReopensSavedResultWithoutReplacingUnrelatedDraft() = runTest {
+        var calls = 0
+        val g = gate { calls++; Session("saved-share") }
+        val shared = draft.copy(prompt = "Shared task", draftVersion = "shared")
+        g.submit(shared.toCreateRequest(null), shared, shared.versionKey)
+        val vm = model(g, recoveryPrompt = shared.prompt)
+        assertEquals("saved-share", vm.ui.value.sessionId)
+        assertEquals(draft, attempts.editable)
+        assertEquals(1, calls)
     }
 
     @Test fun retryUsesExactSnapshotIncludingResolvedDefaultAndCreateAsUser() = runTest {

@@ -32,12 +32,15 @@ internal val NewSessionDraft.hasValidAcuLimit: Boolean
 internal class CreateSessionViewModel(
     private val gate: CreateSessionGate,
     initialPrompt: String,
+    recoveryPrompt: String? = null,
     private val isConsumed: (NewSessionDraft) -> Boolean = { false },
 ) : ViewModel() {
     private val _ui = MutableStateFlow(
         CreateSessionUi(
-            sessionId = gate.openSaved(initialPrompt),
+            sessionId = gate.openSaved(recoveryPrompt ?: initialPrompt),
             confirmation = gate.attempts.value.firstOrNull {
+                recoveryPrompt != null && it.sessionId == null && it.matches(recoveryPrompt)
+            } ?: gate.attempts.value.firstOrNull {
                 it.sessionId == null && !it.dismissed && it.matches(initialPrompt)
             } ?: gate.attempts.value.firstOrNull { it.sessionId == null && !it.dismissed },
         ),
