@@ -7,6 +7,8 @@ import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.CreateSessionGate
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateSnapshot
+import com.blazikener.devin.data.toCreateDraft
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.createFingerprint
 import kotlinx.coroutines.CompletableDeferred
@@ -120,7 +122,7 @@ class HomeLaunchViewModelTest {
         assertEquals("Unrelated task", vm.state.value.createdId)
         vm.consumeCreated("Unrelated task")
         runCurrent()
-        vm.clear(dismissed)
+        vm.clearAttempt(dismissed)
         runCurrent()
         assertTrue(gate.attempts.value.isEmpty())
         vm.start(old)
@@ -170,6 +172,24 @@ class HomeLaunchViewModelTest {
         assertEquals("known", vm.state.value.createdId)
         assertEquals(createFingerprint("Original task"), vm.state.value.createdFingerprint)
         assertNotEquals(createFingerprint("Unrelated Home draft"), vm.state.value.createdFingerprint)
+    }
+
+    @Test fun clearingOnlyTheHomePromptPreservesTheSavedCreateTaskAndItsDuplicateGuard() = runTest {
+        val request = CreateSessionRequest("Same prompt", attachmentUrls = listOf("mock://uploaded-file"), devinMode = "lite", maxAcuLimit = 12)
+        val snapshot = CreateSnapshot(request, request.toCreateDraft(), "create-owned-version")
+        val pending = CreateAttempt(createFingerprint(request.prompt), 1, submitted = snapshot)
+        val vm = model(FakeAttempts(listOf(pending))) { error("Must not duplicate the saved task") }
+        vm.start(CreateSessionRequest("Same prompt"))
+        runCurrent()
+        assertEquals(pending, vm.state.value.confirmation)
+        vm.clearPrompt()
+        runCurrent()
+        assertEquals(HomeLaunchState(), vm.state.value)
+        assertEquals(listOf(pending), vm.attempts.value)
+        vm.start(CreateSessionRequest("Same prompt"))
+        runCurrent()
+        assertEquals(pending, vm.state.value.confirmation)
+        assertEquals(request, vm.state.value.confirmation!!.submitted!!.request)
     }
 
     private class FakeAttempts(private var records: List<CreateAttempt> = emptyList()) : CreateAttemptStore {

@@ -63,9 +63,13 @@ internal class HomeLaunchViewModel(private val gate: CreateSessionGate) : ViewMo
         }
     }
 
-    fun clear(attempt: CreateAttempt?) {
+    fun clearPrompt() {
         _state.value = HomeLaunchState()
-        if (attempt != null) viewModelScope.launch { gate.clear(attempt) }
+    }
+
+    fun clearAttempt(attempt: CreateAttempt) {
+        clearPrompt()
+        viewModelScope.launch { gate.clear(attempt) }
     }
 
     fun openSaved(attempt: CreateAttempt) {

@@ -163,7 +163,7 @@ fun HomeScreen(
                                     prompt = ""
                                     modeChosen = false
                                 }
-                                launcher.clear(attempt)
+                                launcher.clearAttempt(attempt)
                             },
                             onRetry = { keyboard?.hide(); launcher.retryAnyway(attempt) },
                         )
@@ -256,10 +256,9 @@ fun HomeScreen(
                                     }
                                 },
                             )
-                            if (prompt.isNotEmpty()) DevinIconButton("Clear task", Icons.Outlined.Close, {
-                                val matching = attempts.firstOrNull { it.matches(prompt) }
+                            if (prompt.isNotEmpty()) DevinIconButton("Clear prompt", Icons.Outlined.Close, {
                                 prompt = ""
-                                launcher.clear(matching)
+                                launcher.clearPrompt()
                             }, enabled = !busy)
                             if (compactComposer) FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !busy, modifier = Modifier.size(48.dp)) {
                                 Icon(Icons.Filled.ArrowUpward, "Start session")
@@ -315,6 +314,7 @@ private fun HomeCreateRecovery(
     onRetry: () -> Unit,
 ) {
     var reviewOriginal by rememberSaveable(submitted?.request?.prompt) { mutableStateOf(false) }
+    var reviewClear by rememberSaveable(submitted?.draftVersion) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         shape = MaterialTheme.shapes.medium,
@@ -344,11 +344,13 @@ private fun HomeCreateRecovery(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (hasSession) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open session") }
                 TextButton(onClick = onCheck, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check sessions") }
-                if (submitted != null) TextButton(onClick = { reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                if (submitted != null) TextButton(onClick = { reviewClear = false; reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (!hasSession && canRetry) "Review retry" else "Review task and settings")
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Dismiss") }
-                if (!hasSession) TextButton(onClick = onClear, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
+                if (!hasSession) TextButton(onClick = {
+                    if (submitted == null) onClear() else { reviewClear = true; reviewOriginal = true }
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
             }
         }
     }
@@ -357,11 +359,13 @@ private fun HomeCreateRecovery(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Original task and settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-            if (!hasSession) Text("Starting this task again may create a duplicate session. These original settings will be sent, not your current edits.")
+            Text(if (reviewClear) "Clear original task?" else "Original task and settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            if (reviewClear) Text("This clears this saved draft and its attached-file choices. A session that already started will not be deleted. Sending this task again can create another session.")
+            else if (!hasSession) Text("Starting this task again may create a duplicate session. These original settings will be sent, not your current edits.")
             CreateRequestDetails(submitted)
-            if (!hasSession && canRetry) OutlinedButton(onClick = { reviewOriginal = false; onRetry() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
-            TextButton(onClick = { reviewOriginal = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Close") }
+            if (reviewClear) OutlinedButton(onClick = { reviewOriginal = false; onClear() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
+            else if (!hasSession && canRetry) OutlinedButton(onClick = { reviewOriginal = false; onRetry() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
+            TextButton(onClick = { reviewOriginal = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (reviewClear) "Cancel" else "Close") }
         }
     }
 }
