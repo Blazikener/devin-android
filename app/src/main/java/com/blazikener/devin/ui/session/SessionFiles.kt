@@ -11,9 +11,12 @@ import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
@@ -29,11 +32,22 @@ internal fun SessionAttachment.displayType(): String = when {
 }
 
 @Composable
-internal fun SessionFileCard(file: SessionAttachment, onOpen: () -> Unit) {
+internal fun SessionFileCard(file: SessionAttachment, restoreFocus: Boolean = false,
+    onFocusRestored: () -> Unit = {}, onOpen: () -> Unit,
+) {
     val type = file.displayType()
+    val focus = remember(file.id) { FocusRequester() }
+    LaunchedEffect(restoreFocus) {
+        if (restoreFocus) {
+            withFrameNanos { } // Wait until the restored card has been placed.
+            focus.requestFocus()
+            onFocusRestored()
+        }
+    }
     Surface(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("file-${file.id}")
+            .focusRequester(focus).focusProperties { canFocus = true }
             .semantics(mergeDescendants = true) { onClick(label = "Open ${file.name}", action = null) },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -55,6 +69,7 @@ internal fun SessionFileCard(file: SessionAttachment, onOpen: () -> Unit) {
 @Composable
 internal fun SessionFiles(index: FilesIndex, list: LazyListState, retry: () -> Unit,
     onChat: () -> Unit, onOpen: (SessionAttachment) -> Unit,
+    restoreFocusId: String? = null, onFocusRestored: () -> Unit = {},
 ) {
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("files"),
         contentPadding = PaddingValues(DevinDimens.screenPadding),
@@ -93,7 +108,9 @@ internal fun SessionFiles(index: FilesIndex, list: LazyListState, retry: () -> U
         } else if (index.fromCache && !index.refreshing) item(key = "saved") {
             Text("Saved file list", style = MaterialTheme.typography.bodySmall)
         }
-        items(index.rows, key = { "file-${it.id}" }) { file -> SessionFileCard(file) { onOpen(file) } }
+        items(index.rows, key = { "file-${it.id}" }) { file ->
+            SessionFileCard(file, restoreFocusId == file.id, onFocusRestored) { onOpen(file) }
+        }
         if (index.confirmedEmpty) item(key = "empty") {
             Column(Modifier.fillMaxWidth().padding(vertical = 48.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {

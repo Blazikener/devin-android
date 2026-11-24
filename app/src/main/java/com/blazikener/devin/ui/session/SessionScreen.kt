@@ -81,10 +81,17 @@ fun SessionScreen(
     val latestInput by rememberUpdatedState(input)
     val attachFocus = remember { FocusRequester() }
     var restoreAttachFocus by rememberSaveable { mutableStateOf(false) }
+    var openedFile by rememberSaveable(id) { mutableStateOf<String?>(null) }
+    var restoreFileFocus by remember(id) { mutableStateOf<String?>(null) }
 
     DisposableEffect(lifecycle, vm) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) vm.startPolling()
+            if (e == Lifecycle.Event.ON_RESUME) {
+                vm.startPolling()
+                // NavHost resumes the origin after Reader's return transition finishes.
+                restoreFileFocus = openedFile
+                openedFile = null
+            }
             if (e == Lifecycle.Event.ON_PAUSE) { vm.stopPolling(); vm.saveDraft(latestInput) }
         }
         lifecycle.addObserver(obs)
@@ -108,6 +115,7 @@ fun SessionScreen(
     fun openFile(file: SessionAttachment, origin: SessionTab) {
         keyboard?.hide()
         vm.saveDraft(input)
+        openedFile = file.id
         onOpenFile(file, origin)
     }
     fun act(label: String, block: suspend () -> Session) =
@@ -185,7 +193,8 @@ fun SessionScreen(
             }
             if (tab == SessionTab.Files) {
                 SessionFiles(ui.files, filesList, { vm.loadAttachments() }, { tab = SessionTab.Chat },
-                    onOpen = { openFile(it, SessionTab.Files) })
+                    onOpen = { openFile(it, SessionTab.Files) },
+                    restoreFocusId = restoreFileFocus, onFocusRestored = { restoreFileFocus = null })
             } else {
                 if (ui.error != null) SessionBanner(
                     if (ui.offline) "Offline — showing saved messages." else "Couldn’t refresh this session. ${ui.error}",
@@ -209,13 +218,21 @@ fun SessionScreen(
                         if (unreferenced.isNotEmpty()) item(key = "shared-files") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("Shared files", style = MaterialTheme.typography.labelMedium, modifier = Modifier.semantics { heading() })
-                                unreferenced.forEach { a -> SessionFileCard(a) { openFile(a, SessionTab.Chat) } }
+                                unreferenced.forEach { a ->
+                                    SessionFileCard(a, restoreFileFocus == a.id, { restoreFileFocus = null }) {
+                                        openFile(a, SessionTab.Chat)
+                                    }
+                                }
                             }
                         }
                         items(ui.messages.asReversed(), key = { "message-${it.eventId}" }) { m ->
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 MessageBubble(m, ui.files.rows) { openFile(it, SessionTab.Chat) }
-                                referenced[m.eventId].orEmpty().forEach { a -> SessionFileCard(a) { openFile(a, SessionTab.Chat) } }
+                                referenced[m.eventId].orEmpty().forEach { a ->
+                                    SessionFileCard(a, restoreFileFocus == a.id, { restoreFileFocus = null }) {
+                                        openFile(a, SessionTab.Chat)
+                                    }
+                                }
                             }
                         }
                         if (ui.messages.isEmpty() && ui.pending.isEmpty() && (s != null || ui.error == null)) item(key = "empty") {
