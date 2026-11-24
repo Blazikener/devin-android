@@ -12,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -142,9 +143,16 @@ class DevinApi(
     suspend fun attachments(id: String): List<SessionAttachment> =
         json.decodeFromString(get("/v3/organizations/${org()}/sessions/$id/attachments"))
 
-    suspend fun upload(name: String, mime: String, file: File): UploadedAttachment {
+    // Retain compatibility with Create until its shared-uploader change lands.
+    suspend fun upload(name: String, mime: String, bytes: ByteArray): UploadedAttachment =
+        uploadBody(name, bytes.toRequestBody(mime.toMediaType()))
+
+    suspend fun upload(name: String, mime: String, file: File): UploadedAttachment =
+        uploadBody(name, file.asRequestBody(mime.toMediaType()))
+
+    private suspend fun uploadBody(name: String, fileBody: RequestBody): UploadedAttachment {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", name, file.asRequestBody(mime.toMediaType()))
+            .addFormDataPart("file", name, fileBody)
             .build()
         return json.decodeFromString(
             execute(Request.Builder().url(url("/v3/organizations/${org()}/attachments")).auth().post(body).build())
