@@ -56,15 +56,12 @@ fun rememberReducedMotion(): Boolean {
 fun StatusPill(state: SessionState, modifier: Modifier = Modifier) {
     val c = state.color()
     Row(
-        modifier
-            .clip(RoundedCornerShape(50))
-            .background(c.copy(alpha = 0.14f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+        modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         StatusDot(state)
         Spacer(Modifier.size(5.dp))
-        Text(state.label, color = c, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(state.label, color = c, style = MaterialTheme.typography.labelMedium)
     }
 }
 

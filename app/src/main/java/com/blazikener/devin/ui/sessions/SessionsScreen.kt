@@ -86,6 +86,9 @@ import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
+import com.blazikener.devin.ui.components.DevinRootShell
+import com.blazikener.devin.ui.navigation.RootDestination
+import androidx.compose.material.icons.outlined.Menu
 import com.blazikener.devin.ui.components.EmptyState
 import com.blazikener.devin.ui.components.StatusPill
 import com.blazikener.devin.ui.components.openUrl
@@ -103,6 +106,7 @@ fun SessionsScreen(
     onBack: () -> Unit,
     initialFilter: SessionFilter?,
     initialSearch: Boolean,
+    onHome: () -> Unit = onBack,
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
@@ -152,6 +156,14 @@ fun SessionsScreen(
         if (canLoadMore && (visible.isEmpty() || nearEnd)) vm.loadMore()
     }
 
+    DevinRootShell(
+        selected = RootDestination.Sessions, accountName = account?.name,
+        recents = ui.all, needsYouCount = ui.needsYouCount,
+        onHome = onHome, onSessions = {},
+        onNeedsYou = { vm.setFilter(SessionFilter.NeedsYou) },
+        onSearch = { searching = true }, onSettings = onSettings,
+        onOpen = onOpen, onNew = onNew,
+    ) { openMenu ->
     Scaffold(
         topBar = {
             TopAppBar(
@@ -165,8 +177,8 @@ fun SessionsScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = openMenu) {
+                        Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
                     }
                 },
                 actions = {
@@ -269,6 +281,7 @@ fun SessionsScreen(
             },
             dismissButton = { TextButton(onClick = { confirmTerminate = null }) { Text("Cancel") } },
         )
+    }
     }
 }
 
