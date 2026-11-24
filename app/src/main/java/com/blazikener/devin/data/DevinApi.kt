@@ -15,6 +15,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSink
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -127,8 +128,16 @@ class DevinApi(
     suspend fun sendMessage(id: String, req: SendMessageRequest): Session =
         json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/messages", json.encodeToString(SendMessageRequest.serializer(), req)))
 
-    suspend fun createSession(req: CreateSessionRequest): Session =
-        json.decodeFromString(post("/v3/organizations/${org()}/sessions", json.encodeToString(CreateSessionRequest.serializer(), req)))
+    suspend fun createSession(req: CreateSessionRequest): Session {
+        val payload = json.encodeToString(CreateSessionRequest.serializer(), req).toRequestBody(jsonType)
+        val body = object : RequestBody() {
+            override fun contentType() = payload.contentType()
+            override fun contentLength() = payload.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = payload.writeTo(sink)
+        }
+        return json.decodeFromString(execute(Request.Builder().url(url("/v3/organizations/${org()}/sessions")).auth().post(body).build()))
+    }
 
     suspend fun sleep(id: String): Session = json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/sleep"))
     suspend fun archive(id: String): Session = json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/archive"))
