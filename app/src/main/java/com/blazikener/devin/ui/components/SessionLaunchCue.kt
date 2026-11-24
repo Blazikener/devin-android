@@ -2,12 +2,18 @@ package com.blazikener.devin.ui.components
 
 import android.app.ActivityManager
 import android.content.Context
-import android.graphics.PixelFormat
+import android.graphics.SurfaceTexture
+import android.opengl.EGL14.*
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
 import android.opengl.GLES20.*
 import android.opengl.GLSurfaceView
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.view.TextureView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -31,6 +37,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.PI
@@ -91,14 +98,8 @@ private fun NativeLaunchTiles(modifier: Modifier, onFailure: () -> Unit) {
     val callback by rememberUpdatedState(onFailure)
     val renderer = remember { TilesRenderer { Handler(Looper.getMainLooper()).post { callback() } } }
     val view = remember(context) {
-        GLSurfaceView(context).apply {
-            setEGLContextClientVersion(2)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-            holder.setFormat(PixelFormat.TRANSLUCENT)
-            setZOrderOnTop(true)
+        TilesView(context, renderer) { callback() }.apply {
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            setRenderer(renderer)
-            renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
     }
     val started = rememberSaveable { SystemClock.uptimeMillis() }
@@ -114,8 +115,7 @@ private fun NativeLaunchTiles(modifier: Modifier, onFailure: () -> Unit) {
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) view.onResume() else view.onPause()
         onDispose {
             lifecycle.removeObserver(observer)
-            view.queueEvent { renderer.release() }
-            view.onPause()
+            view.close()
         }
     }
     LaunchedEffect(view, lifecycle) {
@@ -130,6 +130,110 @@ private fun NativeLaunchTiles(modifier: Modifier, onFailure: () -> Unit) {
         }
     }
     AndroidView(factory = { view }, modifier = modifier)
+}
+
+/** Own the EGL boundary too: GLSurfaceView's private GL thread cannot report setup failures. */
+private class TilesView(
+    context: Context,
+    private val renderer: TilesRenderer,
+    private val onFailure: () -> Unit,
+) : TextureView(context), TextureView.SurfaceTextureListener {
+    private val worker = HandlerThread("SessionLaunchCue").apply { start() }
+    private val queue = Handler(worker.looper)
+    private val pendingFrame = AtomicBoolean(false)
+    @Volatile private var closed = false
+    @Volatile private var resumed = false
+    @Volatile private var available = false
+    private var display: EGLDisplay = EGL_NO_DISPLAY
+    private var eglContext: EGLContext = EGL_NO_CONTEXT
+    private var surface: EGLSurface = EGL_NO_SURFACE
+
+    init { isOpaque = false; surfaceTextureListener = this }
+
+    fun onResume() { resumed = true; requestRender() }
+    fun onPause() { resumed = false }
+
+    fun requestRender() {
+        if (closed || !pendingFrame.compareAndSet(false, true)) return
+        queue.post {
+            pendingFrame.set(false)
+            safely { draw() }
+        }
+    }
+
+    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+        available = true
+        queue.post {
+            safely {
+                releaseEgl()
+                display = eglGetDisplay(EGL_DEFAULT_DISPLAY)
+                check(display != EGL_NO_DISPLAY && eglInitialize(display, null, 0, null, 0))
+                val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+                val count = IntArray(1)
+                check(eglChooseConfig(display, intArrayOf(
+                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                    EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                    EGL_DEPTH_SIZE, 16, EGL_NONE,
+                ), 0, configs, 0, 1, count, 0) && count[0] > 0)
+                val config = checkNotNull(configs[0])
+                eglContext = eglCreateContext(display, config, EGL_NO_CONTEXT,
+                    intArrayOf(EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE), 0)
+                check(eglContext != EGL_NO_CONTEXT)
+                surface = eglCreateWindowSurface(display, config, texture, intArrayOf(EGL_NONE), 0)
+                check(surface != EGL_NO_SURFACE)
+                check(eglMakeCurrent(display, surface, surface, eglContext))
+                renderer.onSurfaceCreated(null, null)
+                renderer.onSurfaceChanged(null, width, height)
+                draw()
+            }
+        }
+    }
+
+    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+        queue.post { safely { renderer.onSurfaceChanged(null, width, height); draw() } }
+    }
+
+    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+        available = false
+        queue.post { releaseEgl() }
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+
+    private fun draw() {
+        if (!resumed || !available || eglContext == EGL_NO_CONTEXT) return
+        renderer.onDrawFrame(null)
+        check(eglSwapBuffers(display, surface))
+    }
+
+    private inline fun safely(block: () -> Unit) {
+        if (closed) return
+        try { block() } catch (_: Exception) {
+            releaseEgl()
+            if (!closed && available) post { if (!closed) onFailure() }
+        }
+    }
+
+    private fun releaseEgl() {
+        // All GPU/EGL work, including teardown after partial initialization, stays on this thread.
+        if (eglContext != EGL_NO_CONTEXT) runCatching { renderer.release() }
+        if (display != EGL_NO_DISPLAY) {
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)
+            if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface)
+            if (eglContext != EGL_NO_CONTEXT) eglDestroyContext(display, eglContext)
+            eglTerminate(display)
+        }
+        surface = EGL_NO_SURFACE
+        eglContext = EGL_NO_CONTEXT
+        display = EGL_NO_DISPLAY
+    }
+
+    fun close() {
+        closed = true
+        surfaceTextureListener = null
+        queue.post { releaseEgl(); worker.quitSafely() }
+    }
 }
 
 private class TilesRenderer(private val onFailure: () -> Unit) : GLSurfaceView.Renderer {
