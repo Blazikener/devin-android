@@ -314,6 +314,7 @@ fun HomeScreen(
                 ) {
                     if (warning != null && !busy) {
                         CreateRecoveryWarning(
+                            attempt = warning,
                             onCheckRecents = onCheckRecents,
                             onDismiss = { createVm.dismiss(warning) },
                             onRetry = if (prompt.isNotBlank()) ({ send(warning) }) else null,

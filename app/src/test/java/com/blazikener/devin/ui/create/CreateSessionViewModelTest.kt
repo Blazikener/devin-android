@@ -336,6 +336,8 @@ class CreateSessionViewModelTest {
         val interrupted = checkNotNull(pending())
         assertEquals(original, interrupted.submitted?.draft)
         assertEquals("submitted", interrupted.submitted?.draftVersion)
+        assertEquals("Max ACUs: 29 · Mode: Fast", interrupted.submitted?.request?.retrySettingsSummary())
+        assertEquals("Max ACUs: not set · Mode: Default", CreateSessionRequest("Default settings").retrySettingsSummary())
         restored.submit(newer, "other-user", retry = interrupted, draftVersion = "newer")
         runCurrent()
         assertEquals("recovered", restored.ui.value.sessionId)

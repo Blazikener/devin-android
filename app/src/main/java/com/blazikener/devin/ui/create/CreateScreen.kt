@@ -200,6 +200,7 @@ fun CreateScreen(
             )
             if (warning != null && !busy) {
                 CreateRecoveryWarning(
+                    attempt = warning,
                     onCheckRecents = onCheckRecents,
                     onDismiss = { vm.dismiss(warning) },
                     onRetry = if (form.prompt.isNotBlank() && uploading == 0) {
