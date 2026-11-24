@@ -90,6 +90,10 @@ class SettingsStore(context: Context) {
         drafts.edit().apply { if (text.isBlank()) remove(sessionId) else putString(sessionId, text) }.apply()
     }
 
+    /** Storage presence, independent of the account defaults supplied to a fresh form. */
+    fun hasNewSessionDraft(): Boolean = drafts.contains(NEW_SESSION_KEY) ||
+        !drafts.getString(LEGACY_NEW_SESSION_KEY, null).isNullOrBlank()
+
     fun newSessionDraft(defaults: AppSettings = value): NewSessionDraft {
         val fresh = NewSessionDraft(acu = defaults.defaultAcuLimit?.toString() ?: "", mode = defaults.defaultMode)
         drafts.getString(NEW_SESSION_KEY, null)?.let { raw ->

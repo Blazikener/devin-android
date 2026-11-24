@@ -39,7 +39,7 @@ Use `ui/navigation/Routes.kt` builders instead of interpolating raw arguments. S
 
 Root changes use Navigation save/restore state so Home/Sessions do not accumulate. Details, Settings and Create push onto the current origin; successful Create removes only its own entry. Framework NavHost owns system/predictive Back for routes. Shell Back only intercepts an open drawer. Keep Up and system Back equivalent inside this single activity. Screen owners must save scroll, filters and drafts in saveable state / persisted storage, not route URLs.
 
-Each Create entry retains its last-persisted draft in saveable state. Save fresh incoming share arguments and actual edits, but do not autosave an unchanged form merely because it resumed: a newer Create entry may have saved a newer draft. Keep this guard when rebuilding the form.
+Each Create entry retains its last-persisted draft in saveable state. Save fresh incoming share arguments and actual edits, but do not overwrite a newer nonempty draft merely because an unchanged form resumed. If a newer form submitted and emptied the slot, restore the still-unsent form's draft on return. Keep this guard when rebuilding the form.
 
 ## Validation
 
