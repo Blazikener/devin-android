@@ -61,10 +61,10 @@ fun CreateScreen(
     val focus = LocalFocusManager.current
     val saved = remember { graph.settings.newSessionDraft() }
     var sharedChoice by rememberSaveable {
-        mutableStateOf(!initialPrompt.isNullOrBlank() && saved.prompt.isNotBlank() && saved.prompt.trim() != initialPrompt.trim())
+        mutableStateOf(saved.needsSharedChoice(initialPrompt))
     }
     var form by rememberSaveable(stateSaver = DraftSaver) {
-        mutableStateOf(saved.withCreateArguments(if (sharedChoice || saved.prompt.trim() == initialPrompt?.trim()) null else initialPrompt, modeOverride).withVersionFrom(saved))
+        mutableStateOf(saved.seedCreateDraft(initialPrompt, modeOverride))
     }
     var ownsDraft by rememberSaveable { mutableStateOf(graph.settings.hasNewSessionDraft() || !form.sameContentAs(saved)) }
     var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
@@ -338,7 +338,7 @@ fun CreateScreen(
     if (sharedChoice) AlertDialog(
         onDismissRequest = { sharedChoice = false }, title = { Text("Keep your saved task?") },
         text = { Text("There is already a task in this draft. Add the incoming task to it, or keep the draft unchanged.") },
-        confirmButton = { TextButton(onClick = { update(form.withShared(initialPrompt)); sharedChoice = false }) { Text("Add to draft") } },
+        confirmButton = { TextButton(onClick = { update(form.withCreateArguments(initialPrompt, modeOverride)); sharedChoice = false }) { Text("Add to draft") } },
         dismissButton = { TextButton(onClick = { sharedChoice = false }) { Text("Keep draft") } },
     )
     if (confirmClear) AlertDialog(

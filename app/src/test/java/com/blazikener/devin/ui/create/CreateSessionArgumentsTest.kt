@@ -5,6 +5,8 @@ import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreateSessionArgumentsTest {
@@ -33,5 +35,21 @@ class CreateSessionArgumentsTest {
     @Test fun existingMatchingPromptIsNotDuplicatedWhenAdoptingMarker() {
         val existing = NewSessionDraft(prompt = "Home task")
         assertEquals("Home task", existing.withCreateArguments("Home task", null).prompt)
+    }
+
+    @Test fun keepDraftDefersIncomingModeAndTaskUntilAccepted() {
+        val saved = NewSessionDraft(prompt = "Saved task", mode = "fast", draftVersion = "saved")
+        assertTrue(saved.needsSharedChoice("Incoming task"))
+        val beforeDecision = saved.seedCreateDraft("Incoming task", "plan")
+        assertEquals(saved, beforeDecision)
+        val accepted = beforeDecision.withCreateArguments("Incoming task", "plan")
+        assertEquals("Saved task\n\nIncoming task", accepted.prompt)
+        assertEquals("plan", accepted.mode)
+    }
+
+    @Test fun repeatedHomeContributionDoesNotReopenChoiceOrDuplicateEdits() {
+        val edited = NewSessionDraft().seedCreateDraft("Home task", "fast").copy(prompt = "Refined Home task")
+        assertFalse(edited.needsSharedChoice("Home task"))
+        assertEquals(edited, edited.seedCreateDraft("Home task", "fast"))
     }
 }

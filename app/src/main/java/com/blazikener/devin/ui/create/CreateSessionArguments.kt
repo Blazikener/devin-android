@@ -3,6 +3,7 @@ package com.blazikener.devin.ui.create
 import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.NewSessionDraft
+import com.blazikener.devin.data.withVersionFrom
 
 private const val DEFAULT_MODE_OVERRIDE = "default"
 
@@ -25,3 +26,12 @@ internal fun NewSessionDraft.withCreateArguments(prompt: String?, modeOverride: 
     }
     return if (modeOverride == null) draft else draft.copy(mode = modeOverride.takeUnless { it == DEFAULT_MODE_OVERRIDE })
 }
+
+internal fun NewSessionDraft.needsSharedChoice(prompt: String?): Boolean {
+    val incoming = prompt?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    return this.prompt.isNotBlank() && this.prompt.trim() != incoming && lastInitialPrompt != incoming
+}
+
+/** Do not apply any incoming setup until the user accepts the new task contribution. */
+internal fun NewSessionDraft.seedCreateDraft(prompt: String?, modeOverride: String?): NewSessionDraft =
+    if (needsSharedChoice(prompt)) this else withCreateArguments(prompt, modeOverride).withVersionFrom(this)
