@@ -59,6 +59,14 @@ internal class CreateSessionGate(
 
     suspend fun forgetAll() = mutex.withLock { save(emptyList()) }
 
+    /** New input supersedes stale success UI, never an uncertain POST or restored route. */
+    suspend fun discardCompletedForIncomingPrompt(prompt: String?) = mutex.withLock {
+        if (!prompt.isNullOrBlank()) {
+            val pending = state.value.filter { it.sessionId == null }
+            if (pending != state.value) save(pending)
+        }
+    }
+
     private suspend fun change(attempt: CreateAttempt, update: (CreateAttempt) -> CreateAttempt?) = mutex.withLock {
         if (attempt in state.value) save(state.value.mapNotNull { if (it == attempt) update(it) else it })
     }

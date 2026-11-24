@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     val l = launch ?: return@LaunchedEffect
-                    pending.value = null
                     // Cold launches get a Home parent. Warm launches preserve the exact previous route.
                     if (nav.currentDestination?.route == Routes.Login) {
                         nav.navigate(Routes.Home) { popUpTo(Routes.Login) { inclusive = true } }
@@ -90,9 +89,11 @@ class MainActivity : ComponentActivity() {
                     when (l) {
                         is Launch.OpenSession -> nav.openSessionFromLaunch(l.id)
                         is Launch.NewSession -> {
+                            g.createGate.discardCompletedForIncomingPrompt(l.prompt)
                             nav.openCreateFromLaunch(l.prompt)
                         }
                     }
+                    pending.value = null
                 }
                 NavHost(
                     nav, startDestination = start,
@@ -116,7 +117,10 @@ class MainActivity : ComponentActivity() {
                                 nav.showSessionsRoot(filter, search)
                             },
                             onNewForm = { prompt, mode ->
-                                nav.navigate(Routes.create(prompt, mode))
+                                scope.launch {
+                                    g.createGate.discardCompletedForIncomingPrompt(prompt)
+                                    nav.navigate(Routes.create(prompt, mode))
+                                }
                             },
                             onSettings = { nav.navigate("settings") },
                             onCheckSessions = { nav.showSessionsFromCreateRecovery() },

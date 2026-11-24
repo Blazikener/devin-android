@@ -272,6 +272,19 @@ class CreateSessionViewModelTest {
         assertEquals(Launch.NewSession("waiting"), initialLaunch(true) { Launch.NewSession("waiting") })
     }
 
+    @Test fun freshInputDiscardsStaleSuccessButNotPendingProtectionOrRestoredResults() = runTest {
+        val saved = CreateAttempt(createFingerprint(draft.prompt), 1, sessionId = "known")
+        val pending = CreateAttempt(createFingerprint("Pending task"), 2,
+            submitted = CreateSnapshot(CreateSessionRequest(prompt = "Pending task"), draft.copy(prompt = "Pending task"), "pending"))
+        attempts.records = listOf(saved, pending)
+        val g = gate { error("Unexpected POST") }
+        g.discardCompletedForIncomingPrompt(null)
+        assertEquals("known", model(g).ui.value.sessionId)
+        g.discardCompletedForIncomingPrompt(draft.prompt)
+        assertNull(model(g, key = "fresh").ui.value.sessionId)
+        assertEquals(listOf(pending), attempts.records)
+    }
+
     private class FakeAttempts(var editable: NewSessionDraft?) : CreateAttemptStore {
         var records = emptyList<CreateAttempt>()
         val consumed = mutableSetOf<String>()
