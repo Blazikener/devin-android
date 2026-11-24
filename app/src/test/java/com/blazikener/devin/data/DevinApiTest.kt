@@ -24,6 +24,22 @@ class DevinApiTest {
     fun createDoesNotReplayAfter503EvenWithImmediateRetryAfter() =
         assertOneCreatePost(MockResponse().setResponseCode(503).addHeader("Retry-After", "0"))
 
+    @Test
+    fun createUsesAFreshConnectionWithoutChangingGetConnectionReuse() = runBlocking {
+        repeat(2) { server.enqueue(MockResponse().setBody("""{"org_id":"org-1"}""")) }
+        server.enqueue(MockResponse().setBody("""{"session_id":"created"}"""))
+
+        api.self("cog_x")
+        api.self("cog_x")
+        api.createSession(CreateSessionRequest(prompt = "New connection"))
+
+        assertEquals(0, server.takeRequest().sequenceNumber)
+        assertEquals(1, server.takeRequest().sequenceNumber)
+        val create = server.takeRequest()
+        assertEquals("POST", create.method)
+        assertEquals(0, create.sequenceNumber)
+    }
+
     private fun assertOneCreatePost(response: MockResponse) = runBlocking {
         server.enqueue(response)
         server.enqueue(MockResponse().setBody("""{"session_id":"duplicate"}"""))
