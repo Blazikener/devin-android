@@ -81,6 +81,9 @@ fun SessionScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val accessibility = remember(context) {
+        context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+    }
     val latestInput by rememberUpdatedState(input)
     val attachFocus = remember { FocusRequester() }
     var restoreAttachFocus by rememberSaveable { mutableStateOf(false) }
@@ -108,11 +111,14 @@ fun SessionScreen(
     }
     LaunchedEffect(restoreAttachFocus, tab) {
         if (restoreAttachFocus && tab == SessionTab.Chat) {
-            // The old input focus may already be on Attach while TalkBack was on
-            // the removed chip. Reissue a real focus gain after the list changes.
-            focusManager.clearFocus(force = true)
-            withFrameNanos { }
-            attachFocus.requestFocus()
+            // TalkBack can be on the removed chip while input focus stays on
+            // Attach. Reissue focus only for touch exploration; ordinary chip
+            // removal must not steal the editor's focus or dismiss its IME.
+            if (accessibility?.isTouchExplorationEnabled == true) {
+                focusManager.clearFocus(force = true)
+                withFrameNanos { }
+                attachFocus.requestFocus()
+            }
             restoreAttachFocus = false
         }
     }
