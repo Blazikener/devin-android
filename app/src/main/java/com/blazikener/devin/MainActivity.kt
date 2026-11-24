@@ -158,7 +158,8 @@ class MainActivity : ComponentActivity() {
                         CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
                             nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
                             scope.launch { g.createGate.acknowledgeOpened(id) }
-                        }, modeOverride = e.arguments?.getString("mode"))
+                        }, modeOverride = e.arguments?.getString("mode"),
+                            freshIncoming = e.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate) == true)
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {

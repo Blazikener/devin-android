@@ -30,6 +30,7 @@ enum class SessionTab { Chat, Files }
 
 /** Keys shared by Chat/Files and Reader; keep content/URLs out of the route and saved state. */
 object SessionNavigationState {
+    const val IncomingCreate = "incoming_create_prompt"
     const val ConsumedHomeCreate = "consumed_home_create"
     const val SessionsRequest = "sessions_navigation_request"
     const val Tab = "session_tab"

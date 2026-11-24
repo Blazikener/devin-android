@@ -53,7 +53,7 @@ class CreateSessionArgumentsTest {
             override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?) = error("Must not overwrite recovery")
         }
         val gate = CreateSessionGate(store, { error("Must not POST a matching share") })
-        val form = saved.withCreateArguments(" Submitted task ", null, gate.attempts.value)
+        val form = saved.withCreateArguments(" Submitted task ", null, gate.attempts.value, freshIncoming = true)
         assertEquals("Submitted task", form.prompt)
         assertEquals(CreateResult.NeedsConfirmation(pending), gate.submit(CreateSessionRequest(form.prompt)))
         assertTrue(saved.shouldPreserveOnRecovery(pending))
@@ -69,5 +69,17 @@ class CreateSessionArgumentsTest {
         assertEquals("Fresh task", form.prompt)
         assertEquals(form, form.withCreateArguments("Fresh task", null, listOf(pending)))
         assertEquals("Fresh task\n\nMore context", form.withCreateArguments("More context", null, listOf(pending)).prompt)
+    }
+
+    @Test fun homeReopeningAnEditedUncertainTaskKeepsItsSubmittedPromptAndGuard() = runTest {
+        val edited = NewSessionDraft(prompt = "Home task, refined", lastInitialPrompt = "Home task")
+        val pending = CreateAttempt(createFingerprint(edited.prompt), 1)
+        val gate = CreateSessionGate(object : CreateAttemptStore {
+            override fun read() = listOf(pending)
+            override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?) = error("Must not alter pending task")
+        }, { error("Must not POST old Home text") })
+        val reopened = edited.withCreateArguments("Home task", null, gate.attempts.value)
+        assertEquals(edited, reopened)
+        assertEquals(CreateResult.NeedsConfirmation(pending), gate.submit(CreateSessionRequest(reopened.prompt)))
     }
 }

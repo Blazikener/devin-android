@@ -39,6 +39,7 @@ fun NavHostController.openCreatedSessionFromLaunch(id: String, promptFingerprint
 fun NavHostController.openCreateFromLaunch(prompt: String?) {
     // A new entry must initialize from the shared prompt, not reuse another form's remembered state.
     navigate(Routes.create(prompt.orEmpty()))
+    currentBackStackEntry?.savedStateHandle?.set(SessionNavigationState.IncomingCreate, true)
 }
 
 /** Recovery is a root switch, not a new Sessions entry above the unresolved Create form. */

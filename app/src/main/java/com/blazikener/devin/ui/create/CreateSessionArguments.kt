@@ -12,17 +12,20 @@ internal fun NewSessionDraft.withCreateArguments(
     prompt: String?,
     modeOverride: String?,
     attempts: List<CreateAttempt> = emptyList(),
+    freshIncoming: Boolean = false,
 ): NewSessionDraft {
     val incoming = prompt?.trim()?.takeIf(String::isNotEmpty)
     // Back from Create keeps both Home's text and the edited form. Reopening must not
     // append the same source again, even if the form changed or the process was recreated.
     val draft = when {
         incoming == null -> this
+        // Home reopening the same handoff must retain later edits, even when those edits
+        // now have an uncertain launch of their own. External shares are fresh inputs.
+        incoming == lastInitialPrompt && !freshIncoming -> this
         // Never concatenate around a submitted task: that changes its fingerprint and
         // silently bypasses the shared duplicate guard. This takes precedence over metadata.
         attempts.any { it.matches(incoming) || it.matches(this.prompt) } ->
             copy(prompt = incoming, lastInitialPrompt = incoming)
-        incoming == lastInitialPrompt -> this
         else -> {
             val combined = if (incoming == this.prompt.trim()) this else withShared(incoming)
             combined.copy(lastInitialPrompt = incoming)

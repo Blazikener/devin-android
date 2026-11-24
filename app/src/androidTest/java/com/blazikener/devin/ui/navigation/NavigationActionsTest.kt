@@ -86,6 +86,7 @@ class NavigationActionsTest {
     @Test fun sharedPromptCreatesFreshEntryAndBackRestoresOriginalForm() = onMain {
         val nav = controller()
         nav.openCreateFromLaunch("original")
+        assertEquals(true, nav.currentBackStackEntry!!.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate))
         val originalEntry = nav.currentBackStackEntry!!.id
         nav.currentBackStackEntry!!.savedStateHandle["draft"] = "unsent"
         nav.openCreateFromLaunch("fresh shared text /?&")
@@ -94,6 +95,8 @@ class NavigationActionsTest {
         assertTrue(nav.popBackStack())
         assertEquals(originalEntry, nav.currentBackStackEntry!!.id)
         assertEquals("unsent", nav.currentBackStackEntry!!.savedStateHandle.get<String>("draft"))
+        val restored = controller(nav.saveState())
+        assertEquals(true, restored.currentBackStackEntry!!.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate))
     }
 
     @Test fun settingsAndColdLaunchKeepTheirExactParents() = onMain {
