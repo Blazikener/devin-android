@@ -103,10 +103,11 @@ fun SessionsScreen(
     onBack: () -> Unit,
     initialFilter: SessionFilter?,
     initialSearch: Boolean,
+    allUsers: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
-    val vm: SessionsViewModel = viewModel { val app = ctx.applicationContext; SessionsViewModel(g) { SessionWatcher.markSeen(app, it) } }
+    val vm: SessionsViewModel = viewModel { val app = ctx.applicationContext; SessionsViewModel(g, allUsers) { SessionWatcher.markSeen(app, it) } }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val account by g.auth.account.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }

@@ -69,7 +69,7 @@ import com.blazikener.devin.notify.SessionWatcher
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val s by g.settings.settings.collectAsStateWithLifecycle()
@@ -167,8 +167,8 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
         onDismissRequest = { confirmOut = false },
         title = { Text("Sign out?") }, text = { Text("Your API key and cached sessions are removed from this device.") },
         confirmButton = { TextButton(onClick = {
-            confirmOut = false; SessionWatcher.cancel(ctx); g.auth.clear(); g.cache.clear(); g.settings.clearDrafts()
-            ctx.getSharedPreferences("watcher", 0).edit().clear().apply(); onSignedOut()
+            confirmOut = false
+            g.signOut()
         }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
     )

@@ -72,8 +72,9 @@ internal class SessionsViewModel(
     pinned: StateFlow<Set<String>>,
     private val changePin: (String) -> Unit,
     private val perform: suspend (String, SessionAction) -> Session,
+    allUsers: Boolean = false,
 ) : ViewModel() {
-    constructor(g: AppGraph, onActed: (Session) -> Unit) : this(
+    constructor(g: AppGraph, allUsers: Boolean = false, onActed: (Session) -> Unit) : this(
         userId = g.auth.account.value?.userId,
         fetch = { first, after, archived, users -> g.api.listSessions(first, after, archived, users) },
         readCache = g.cache::sessions,
@@ -88,9 +89,10 @@ internal class SessionsViewModel(
                 SessionAction.Terminate -> g.api.terminate(id)
             }.also(onActed)
         },
+        allUsers = allUsers,
     )
 
-    private val _ui = MutableStateFlow(SessionsUi(mineOnly = userId != null))
+    private val _ui = MutableStateFlow(SessionsUi(mineOnly = userId != null && !allUsers))
     val ui: StateFlow<SessionsUi> = _ui
     private val cacheWrites = Mutex()
 

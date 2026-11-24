@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -15,6 +16,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSink
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -48,6 +50,10 @@ class DevinApi(
         .retryOnConnectionFailure(true)
         .build()
 
+    private val createHttp = http.newBuilder()
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+        .build()
+
     private val jsonType = "application/json".toMediaType()
 
     private fun url(path: String, query: List<Pair<String, String?>> = emptyList()): HttpUrl {
@@ -64,8 +70,8 @@ class DevinApi(
         header("User-Agent", "DevinAndroid/0.1")
     }
 
-    private suspend fun execute(req: Request): String = withContext(Dispatchers.IO) {
-        http.newCall(req).execute().use { resp -> resp.bodyOrThrow() }
+    private suspend fun execute(req: Request, client: OkHttpClient = http): String = withContext(Dispatchers.IO) {
+        client.newCall(req).execute().use { resp -> resp.bodyOrThrow() }
     }
 
     private fun Response.bodyOrThrow(): String {
@@ -127,8 +133,16 @@ class DevinApi(
     suspend fun sendMessage(id: String, req: SendMessageRequest): Session =
         json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/messages", json.encodeToString(SendMessageRequest.serializer(), req)))
 
-    suspend fun createSession(req: CreateSessionRequest): Session =
-        json.decodeFromString(post("/v3/organizations/${org()}/sessions", json.encodeToString(CreateSessionRequest.serializer(), req)))
+    suspend fun createSession(req: CreateSessionRequest): Session {
+        val payload = json.encodeToString(CreateSessionRequest.serializer(), req).toRequestBody(jsonType)
+        val body = object : RequestBody() {
+            override fun contentType() = payload.contentType()
+            override fun contentLength() = payload.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = payload.writeTo(sink)
+        }
+        return json.decodeFromString(execute(Request.Builder().url(url("/v3/organizations/${org()}/sessions")).auth().post(body).build(), createHttp))
+    }
 
     suspend fun sleep(id: String): Session = json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/sleep"))
     suspend fun archive(id: String): Session = json.decodeFromString(post("/v3/organizations/${org()}/sessions/$id/archive"))

@@ -91,7 +91,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.DEVIN_MODES
-import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateAttempt
+import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
@@ -99,18 +100,28 @@ import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinOrb
 import com.blazikener.devin.ui.components.StatusDot
 import com.blazikener.devin.ui.components.rememberReducedMotion
+import com.blazikener.devin.ui.create.createModeOverride
+import com.blazikener.devin.ui.create.CreateRecoveryWarning
+import com.blazikener.devin.ui.create.CreateSessionViewModel
 import com.blazikener.devin.ui.sessions.SessionsViewModel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+internal fun recoveredHomePrompt(prompt: String, attempt: CreateAttempt): String =
+    if (attempt.matches(prompt)) "" else prompt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onOpen: (String) -> Unit,
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
-    onNewForm: (prompt: String) -> Unit,
+    onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
+    onCheckRecents: () -> Unit,
+    onCreated: (String) -> Unit,
+    recoveredSessionId: String?,
+    onRecoveryHandled: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -131,15 +142,26 @@ fun HomeScreen(
     var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
     var modeChosen by rememberSaveable { mutableStateOf(false) }
     val mode = if (modeChosen) chosenMode else settings.defaultMode
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val createVm = viewModel { CreateSessionViewModel(g.createGate) }
+    val submission by createVm.ui.collectAsStateWithLifecycle()
+    val attempts by g.createGate.attempts.collectAsStateWithLifecycle()
+    val inFlight by g.createGate.inFlight.collectAsStateWithLifecycle()
+    val busy = submission.submitting || submission.sessionId != null || inFlight
+    val warning = attempts.firstOrNull {
+        it.sessionId == null && (prompt.isBlank() || it.matches(prompt)) &&
+            (!it.dismissed || submission.confirmation == it)
+    }
     var showModePicker by remember { mutableStateOf(false) }
     var greetingVisible by remember { mutableStateOf(false) }
     var statusVisible by remember { mutableStateOf(false) }
 
     fun updatePrompt(value: String) {
         prompt = value
-        error = null
+        createVm.clearError()
+    }
+
+    fun openMoreOptions(text: String) {
+        onNewForm(text, createModeOverride(modeChosen, chosenMode))
     }
 
     LaunchedEffect(Unit) {
@@ -158,32 +180,37 @@ fun HomeScreen(
         statusVisible = true
     }
 
-    fun send() {
-        val trimmed = prompt.trim()
-        if (trimmed.isEmpty() || busy) return
-        busy = true
-        error = null
-        scope.launch {
-            runCatching {
-                g.api.createSession(
-                    CreateSessionRequest(
-                        prompt = trimmed,
-                        maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
-                        createAsUserId = settings.createAsUserId,
-                        devinMode = mode,
-                    ),
-                )
-            }.onSuccess { session ->
-                prompt = ""
-                modeChosen = false
-                busy = false
-                onOpen(session.id)
-            }.onFailure { failure ->
-                error = failure.message ?: "Couldn't start the session"
-                busy = false
-            }
+    LaunchedEffect(submission.sessionId) {
+        submission.sessionId?.let {
+            prompt = ""
+            modeChosen = false
+            createVm.consumeResult()
+            onCreated(it)
         }
     }
+
+    LaunchedEffect(recoveredSessionId, attempts) {
+        val id = recoveredSessionId ?: return@LaunchedEffect
+        attempts.firstOrNull { it.sessionId == id }?.let { attempt ->
+            val cleared = recoveredHomePrompt(prompt, attempt)
+            if (cleared != prompt) {
+                prompt = cleared
+                modeChosen = false
+            }
+        }
+        onRecoveryHandled(id)
+    }
+
+    fun send(retry: CreateAttempt?) {
+        if (prompt.isBlank() || busy) return
+        createVm.submit(
+            NewSessionDraft(prompt = prompt, acu = settings.defaultAcuLimit?.toString().orEmpty(), mode = mode),
+            settings.createAsUserId,
+            retry,
+        )
+    }
+
+    fun send() = send(null)
 
     fun navigateFromDrawer(action: () -> Unit) {
         scope.launch {
@@ -205,7 +232,7 @@ fun HomeScreen(
                 onSettings = { navigateFromDrawer(onSettings) },
                 onOpen = { id -> navigateFromDrawer { onOpen(id) } },
                 onViewAll = { navigateFromDrawer { onSessions(null, false) } },
-                onNewSession = { navigateFromDrawer { onNewForm("") } },
+                onNewSession = { navigateFromDrawer { onNewForm("", null) } },
             )
         },
     ) {
@@ -285,7 +312,15 @@ fun HomeScreen(
                     Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    error?.let {
+                    if (warning != null && !busy) {
+                        CreateRecoveryWarning(
+                            attempt = warning,
+                            onCheckRecents = onCheckRecents,
+                            onDismiss = { createVm.dismiss(warning) },
+                            onRetry = if (prompt.isNotBlank()) ({ send(warning) }) else null,
+                        )
+                    }
+                    submission.error?.let {
                         Text(
                             it,
                             color = MaterialTheme.colorScheme.error,
@@ -309,7 +344,7 @@ fun HomeScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, ::openMoreOptions)
                                 HomePromptField(
                                     prompt = prompt,
                                     onPromptChange = ::updatePrompt,
@@ -331,7 +366,7 @@ fun HomeScreen(
                             if (!compactIme) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                    HomeMoreOptionsButton(prompt, ::updatePrompt, ::openMoreOptions)
                                     Spacer(Modifier.width(8.dp))
                                     val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
                                     Row(

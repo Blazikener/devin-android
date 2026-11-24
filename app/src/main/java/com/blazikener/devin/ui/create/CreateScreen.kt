@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,7 +55,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.blazikener.devin.data.CreateSessionRequest
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.DraftAttachment
 import com.blazikener.devin.data.NewSessionDraft
@@ -75,16 +77,42 @@ private val DraftSaver = Saver<NewSessionDraft, String>(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CreateScreen(
+    initialPrompt: String?,
+    modeOverride: String?,
+    onBack: () -> Unit,
+    onCheckRecents: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val settings = g.settings.value
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withShared(initialPrompt)) }
-    var busy by remember { mutableStateOf(false) }
-    var created by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val formState = rememberSaveable(stateSaver = DraftSaver) {
+        val draft = g.settings.newSessionDraft()
+        mutableStateOf(draft.withCreateArguments(initialPrompt, modeOverride, g.createGate.attempts.value))
+    }
+    var form by remember<MutableState<NewSessionDraft>>(formState) {
+        object : MutableState<NewSessionDraft> by formState {
+            override var value: NewSessionDraft
+                get() = formState.value
+                set(value) {
+                    g.settings.saveNewSessionDraft(value)
+                    formState.value = value
+                }
+        }
+    }
+    val vm: CreateSessionViewModel = viewModel {
+        CreateSessionViewModel(g.createGate)
+    }
+    val submission by vm.ui.collectAsStateWithLifecycle()
+    val attempts by g.createGate.attempts.collectAsStateWithLifecycle()
+    val inFlight by g.createGate.inFlight.collectAsStateWithLifecycle()
+    val matching = attempts.firstOrNull { it.matches(form.prompt) }
+    val recovered = submission.sessionId ?: matching?.sessionId
+    val warning = matching?.takeIf { it.sessionId == null && (!it.dismissed || submission.confirmation == it) }
+    val busy = inFlight || submission.submitting || recovered != null
     var repos by remember { mutableStateOf<List<Repository>>(emptyList()) }
     var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
     val playbook = playbooks.firstOrNull { it.id == form.playbookId }
@@ -93,7 +121,12 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     var uploading by remember { mutableStateOf(0) }
 
     // Saved on every edit so the form survives Back, leaving the app, and process death.
-    LaunchedEffect(form) { if (!created) g.settings.saveNewSessionDraft(form) }
+    LaunchedEffect(Unit) {
+        if (recovered == null && !g.settings.newSessionDraft().shouldPreserveOnRecovery(matching)) {
+            g.settings.saveNewSessionDraft(form)
+        }
+    }
+    LaunchedEffect(recovered) { recovered?.let(onCreated) }
 
     LaunchedEffect(Unit) {
         launch {
@@ -149,46 +182,43 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
         }
     }
 
-    fun create() {
-        val prompt = form.prompt
-        if (prompt.isBlank()) { error = "Tell Devin what to do"; return }
-        busy = true; error = null
-        scope.launch {
-            runCatching {
-                g.api.createSession(
-                    CreateSessionRequest(
-                        prompt = prompt.trim(),
-                        title = form.title.trim().ifEmpty { null },
-                        tags = form.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
-                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 },
-                        playbookId = form.playbookId,
-                        repos = form.repos.ifEmpty { null },
-                        attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
-                        createAsUserId = settings.createAsUserId,
-                        devinMode = form.mode,
-                    )
-                )
-            }.onSuccess {
-                created = true
-                g.settings.saveNewSessionDraft(NewSessionDraft())
-                onCreated(it.id)
-            }
-                .onFailure { error = it.message; busy = false }
-        }
-    }
-
     Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("New session") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-        )
+        Column {
+            TopAppBar(
+                title = { Text("New session") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+                actions = {
+                    if (submission.submitting) {
+                        Row(
+                            Modifier.padding(end = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("Starting session…")
+                        }
+                    }
+                },
+            )
+            if (warning != null && !busy) {
+                CreateRecoveryWarning(
+                    attempt = warning,
+                    onCheckRecents = onCheckRecents,
+                    onDismiss = { vm.dismiss(warning) },
+                    onRetry = if (form.prompt.isNotBlank() && uploading == 0) {
+                        { vm.submit(form, settings.createAsUserId, retry = warning) }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
+            }
+        }
     }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedTextField(
-                value = form.prompt, onValueChange = { form = form.copy(prompt = it); error = null }, label = { Text("What should Devin do?") },
+                value = form.prompt, onValueChange = { form = form.copy(prompt = it); vm.clearError() }, label = { Text("What should Devin do?") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp).testTag("prompt"),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -244,11 +274,20 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                 value = form.acu, onValueChange = { form = form.copy(acu = it.filter(Char::isDigit)) }, label = { Text("Max ACUs (optional)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = ::create, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
+            submission.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(onClick = {
+                val version = form.takeUnless { g.settings.newSessionDraft().shouldPreserveOnRecovery(matching) }
+                    ?.let(g.settings::saveNewSessionDraft)
+                vm.submit(form, settings.createAsUserId, draftVersion = version)
+            }, enabled = !busy && warning == null && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
+                Text("Start session")
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); error = null }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = {
+                val savedDraft = g.settings.newSessionDraft()
+                vm.clear(matching)
+                if (savedDraft.shouldPreserveOnRecovery(matching)) formState.value = savedDraft else form = defaults
+                failedUploads.clear()
+            }, enabled = !busy && (form != defaults || failedUploads.isNotEmpty() || matching != null)) { Text("Clear") }
         }
     }
 }
