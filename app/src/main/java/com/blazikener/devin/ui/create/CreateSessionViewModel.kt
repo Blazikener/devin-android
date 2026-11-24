@@ -65,7 +65,7 @@ internal class CreateSessionViewModel(
                 _ui.value = state.copy(pendingDraft = pending, error = "A newer start is unresolved. Review the previous task before retrying.")
                 return
             }
-            pending ?: form
+            pending ?: state.pendingDraft ?: form
         } else form
         if (attempts.isConsumed(source)) {
             _ui.value = state.copy(error = "This draft was already started or cleared. Clear it to start a new task.")

@@ -329,6 +329,23 @@ class CreateSessionViewModelTest {
     }
 
     @Test
+    fun oldWarningRetriesItsSnapshotAfterAnUnrelatedResultWasAcknowledged() = runTest {
+        val submitted = draft.copy(acu = "20", mode = "fast", draftVersion = "request")
+        attempts.write(CreateAttempt.Pending, submitted)
+        var sent: CreateSessionRequest? = null
+        val vm = model { request -> sent = request; Session("retried-original") }
+        val other = draft.copy(prompt = "Other request", draftVersion = "other")
+        attempts.write(CreateAttempt.Pending, other)
+        attempts.write(CreateAttempt.Created("other-session"), other)
+        attempts.acknowledgeCreated("other-session")
+        vm.submit(other, null, confirmedRetry = true)
+        runCurrent()
+        assertEquals(submitted.prompt, sent?.prompt)
+        assertEquals(20, sent?.maxAcuLimit)
+        assertEquals("fast", sent?.devinMode)
+    }
+
+    @Test
     fun unrelatedPromptCanStartWhileOldWarningStillRequiresConfirmationForOriginal() = runTest {
         attempts.write(CreateAttempt.Pending, draft)
         val newer = draft.copy(prompt = "An unrelated task", draftVersion = "unrelated")
