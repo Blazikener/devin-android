@@ -165,10 +165,8 @@ class SettingsStore(context: Context) {
                                 putString(CREATE_ATTEMPT_KEY, "")
                                 putString(CREATE_ATTEMPT_VERSION_KEY, draft?.versionKey)
                                 if (draft != null) putString(CREATE_ATTEMPT_DRAFT_KEY, json.encodeToString(NewSessionDraft.serializer(), draft))
-                                // A newer share may have saved while this POST was being scheduled.
-                                if (draft != null && (!hasNewSessionDraft() || newSessionDraft().versionKey == draft.versionKey)) {
-                                    writeNewSessionDraft(draft)
-                                }
+                                // Request defaults belong only to this durable snapshot. The editable
+                                // slot was saved at the edit boundary and may now hold a newer task.
                             }
                             is CreateAttempt.Created -> {
                                 if (ownsAttempt) {

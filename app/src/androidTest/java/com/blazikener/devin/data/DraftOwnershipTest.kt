@@ -73,4 +73,15 @@ class DraftOwnershipTest {
         assertEquals(newer, store.newSessionDraft())
         assertTrue(store.wasNewSessionDraftConsumed(original))
     }
+
+    @Test fun resolvedRequestDefaultNeverBecomesAnEditableOverrideAfterRejection() = runBlocking {
+        val editable = original.copy(acu = "")
+        val submitted = editable.copy(acu = "20")
+        store.saveNewSessionDraft(editable)
+        store.createAttempts.write(CreateAttempt.Pending, submitted)
+        assertEquals(submitted, store.createAttempts.pendingDraft())
+        assertEquals("", store.newSessionDraft().acu)
+        store.createAttempts.write(null, submitted)
+        assertEquals(editable, SettingsStore(context).newSessionDraft())
+    }
 }

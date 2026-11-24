@@ -36,7 +36,7 @@ import java.io.IOException
 class CreateSessionViewModelTest {
     private val store = ViewModelStore()
     private val draft = NewSessionDraft(prompt = "Start a session")
-    private val attempts = FakeCreateAttempts()
+    private val attempts = FakeCreateAttempts().also { it.draft = draft }
 
     @Before
     fun setUp() = Dispatchers.setMain(StandardTestDispatcher())
@@ -268,6 +268,7 @@ class CreateSessionViewModelTest {
     fun acknowledgingOldResultDoesNotClearANewerDraftOrAttempt() = runTest {
         attempts.write(CreateAttempt.Created("old-session"), draft)
         val newer = draft.copy(prompt = "Newer shared task")
+        attempts.draft = newer
         attempts.write(CreateAttempt.Pending, newer)
         attempts.acknowledgeCreated("old-session")
         assertEquals(newer, attempts.draft)
@@ -345,7 +346,7 @@ class CreateSessionViewModelTest {
             if (attempt is CreateAttempt.Created && draft != null) {
                 consumed += draft.versionKey
                 if (this.draft?.versionKey == draft.versionKey) this.draft = NewSessionDraft()
-            } else if (attempt == CreateAttempt.Pending && draft != null) { this.draft = draft; pendingSnapshot = draft }
+            } else if (attempt == CreateAttempt.Pending && draft != null) pendingSnapshot = draft
             return true
         }
 
