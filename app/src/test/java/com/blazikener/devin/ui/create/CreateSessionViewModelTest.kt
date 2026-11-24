@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.blazikener.devin.Launch
+import com.blazikener.devin.initialLaunch
 import com.blazikener.devin.data.ApiException
 import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.CreateAttemptStore
@@ -173,7 +175,7 @@ class CreateSessionViewModelTest {
         assertEquals(2, requests)
         assertEquals("retry-session", restored.ui.value.sessionId)
         assertEquals(CreateAttempt.Created("retry-session"), attempts.read())
-        restored.acknowledgeCreated()
+        restored.acknowledgeCreated("retry-session")
         assertNull(attempts.read())
     }
 
@@ -184,7 +186,7 @@ class CreateSessionViewModelTest {
         assertEquals("original-session", restored.ui.value.sessionId)
         restored.submit(draft, null)
         runCurrent()
-        restored.acknowledgeCreated()
+        restored.acknowledgeCreated("original-session")
         assertNull(attempts.read())
     }
 
@@ -216,6 +218,45 @@ class CreateSessionViewModelTest {
         }
     }
 
+    @Test
+    fun incomingSharedPromptTakesPriorityOverCompletedSession() = runTest {
+        attempts.write(CreateAttempt.Created("old-session"), NewSessionDraft())
+        attempts.discardCompletedForIncomingPrompt("New shared text")
+        val vm = model { error("Unexpected new request") }
+        assertNull(vm.ui.value.sessionId)
+        assertFalse(vm.ui.value.uncertain)
+    }
+
+    @Test
+    fun restoredCreateRouteWithOriginalPromptKeepsCompletedSession() = runTest {
+        attempts.write(CreateAttempt.Created("original-session"), NewSessionDraft())
+        val originalLaunch = Launch.NewSession("Original shared text")
+        assertNull(initialLaunch(launchPending = false) { originalLaunch })
+        assertEquals(originalLaunch, initialLaunch(launchPending = true) { originalLaunch })
+        assertEquals(originalLaunch, initialLaunch(launchPending = null) { originalLaunch })
+        val restored = model { error("Unexpected new request") }
+        assertEquals("original-session", restored.ui.value.sessionId)
+    }
+
+    @Test
+    fun incomingSharedPromptDoesNotDiscardUncertainAttempt() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        attempts.discardCompletedForIncomingPrompt("New shared text")
+        val vm = model { error("Unexpected new request") }
+        assertTrue(vm.ui.value.uncertain)
+        assertEquals(CreateAttempt.Pending, attempts.read())
+    }
+
+    @Test
+    fun acknowledgingOldResultDoesNotClearANewerDraftOrAttempt() = runTest {
+        attempts.write(CreateAttempt.Created("old-session"), draft)
+        attempts.acknowledgeCreated("old-session")
+        assertEquals(draft, attempts.draft)
+        attempts.write(CreateAttempt.Pending, draft)
+        attempts.acknowledgeCreated("old-session")
+        assertEquals(CreateAttempt.Pending, attempts.read())
+    }
+
     private class FakeCreateAttempts : CreateAttemptStore {
         private var attempt: CreateAttempt? = null
         var draft: NewSessionDraft? = null
@@ -230,9 +271,8 @@ class CreateSessionViewModelTest {
             return true
         }
 
-        override fun acknowledgeCreated() {
-            attempt = null
-            draft = NewSessionDraft()
+        override fun acknowledgeCreated(sessionId: String) {
+            if (attempt == CreateAttempt.Created(sessionId)) attempt = null
         }
     }
 }

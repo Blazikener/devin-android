@@ -28,6 +28,7 @@ import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.ui.create.CreateScreen
+import com.blazikener.devin.ui.create.discardCompletedForIncomingPrompt
 import com.blazikener.devin.ui.home.HomeScreen
 import com.blazikener.devin.ui.login.LoginScreen
 import com.blazikener.devin.ui.session.SessionScreen
@@ -41,6 +42,9 @@ sealed interface Launch {
     data class NewSession(val prompt: String?) : Launch
 }
 
+internal fun initialLaunch(launchPending: Boolean?, decode: () -> Launch?): Launch? =
+    if (launchPending == false) null else decode()
+
 class MainActivity : ComponentActivity() {
     private val pending = mutableStateOf<Launch?>(null)
     private val notifPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -50,7 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // On recreation (rotation, process death) the nav back stack already holds a handled launch;
         // one still waiting for sign-in is replayed.
-        if (savedInstanceState?.getBoolean(LAUNCH_PENDING) != false) pending.value = parse(intent)
+        pending.value = initialLaunch(savedInstanceState?.getBoolean(LAUNCH_PENDING)) { parse(intent) }
         setContent {
             val g = graph
             val settings by g.settings.settings.collectAsStateWithLifecycle()
@@ -69,7 +73,10 @@ class MainActivity : ComponentActivity() {
                     }
                     when (l) {
                         is Launch.OpenSession -> nav.openSessionFromLaunch(l.id)
-                        is Launch.NewSession -> nav.openCreateFromLaunch(l.prompt)
+                        is Launch.NewSession -> {
+                            g.settings.createAttempts.discardCompletedForIncomingPrompt(l.prompt)
+                            nav.openCreateFromLaunch(l.prompt)
+                        }
                     }
                 }
                 NavHost(
@@ -93,7 +100,10 @@ class MainActivity : ComponentActivity() {
                             onSessions = { filter, search ->
                                 nav.showSessionsRoot(filter, search)
                             },
-                            onNewForm = { prompt, mode -> nav.navigate(Routes.create(prompt, mode)) },
+                            onNewForm = { prompt, mode ->
+                                g.settings.createAttempts.discardCompletedForIncomingPrompt(prompt)
+                                nav.navigate(Routes.create(prompt, mode))
+                            },
                             onSettings = { nav.navigate("settings") },
                         )
                     }

@@ -8,5 +8,5 @@ internal sealed interface CreateAttempt {
 internal interface CreateAttemptStore {
     fun read(): CreateAttempt?
     suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft? = null): Boolean
-    fun acknowledgeCreated()
+    fun acknowledgeCreated(sessionId: String)
 }

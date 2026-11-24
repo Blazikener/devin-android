@@ -102,6 +102,9 @@ class SettingsStore(context: Context) {
         drafts.edit().writeNewSessionDraft(d).apply()
     }
 
+    fun hasNewSessionDraft(): Boolean =
+        drafts.contains(NEW_SESSION_KEY) || drafts.contains(LEGACY_NEW_SESSION_KEY)
+
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
         remove(LEGACY_NEW_SESSION_KEY)
         if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
@@ -126,8 +129,8 @@ class SettingsStore(context: Context) {
                 }.commit()
             }
 
-        override fun acknowledgeCreated() {
-            drafts.edit().remove(CREATE_ATTEMPT_KEY).writeNewSessionDraft(NewSessionDraft()).apply()
+        override fun acknowledgeCreated(sessionId: String) {
+            if (read() == CreateAttempt.Created(sessionId)) drafts.edit().remove(CREATE_ATTEMPT_KEY).apply()
         }
     }
     fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }

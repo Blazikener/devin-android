@@ -40,7 +40,7 @@ internal class CreateSessionViewModel(
         _ui.value = _ui.value.copy(error = null)
     }
 
-    fun acknowledgeCreated() = attempts.acknowledgeCreated()
+    fun acknowledgeCreated(sessionId: String) = attempts.acknowledgeCreated(sessionId)
 
     fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false) {
         val state = _ui.value

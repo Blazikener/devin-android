@@ -88,7 +88,7 @@ fun CreateScreen(
     }
     // Arguments are saved once per entry; Back and rotation must not rewrite a newer draft.
     LaunchedEffect(Unit) {
-        if (vm.ui.value.sessionId == null && form != lastSavedForm) {
+        if (vm.ui.value.sessionId == null && (form != lastSavedForm || !graph.settings.hasNewSessionDraft())) {
             graph.settings.saveNewSessionDraft(form)
             lastSavedForm = form
         }
@@ -96,7 +96,7 @@ fun CreateScreen(
     LaunchedEffect(submission.sessionId) {
         submission.sessionId?.let {
             onCreated(it)
-            vm.acknowledgeCreated()
+            vm.acknowledgeCreated(it)
         }
     }
     LaunchedEffect(uploads) {
