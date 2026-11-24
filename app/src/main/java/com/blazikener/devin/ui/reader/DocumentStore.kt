@@ -8,10 +8,27 @@ import java.util.UUID
 
 /** Each handoff has its own immutable path, including repeated exports of the same name. */
 internal fun newExportFile(directory: File, name: String): File {
+    pruneExports(directory)
     val attempt = File(directory, "exports/${UUID.randomUUID()}")
     check(attempt.mkdirs()) { "Cannot create export directory" }
     val basename = File(name).name.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "document"
     return File(attempt, basename)
+}
+
+/** Reserve 20 MiB for the next download; retain recent handoffs within a 100 MiB cache budget. */
+internal fun pruneExports(directory: File, keepBytes: Long = 80L * 1024 * 1024, now: Long = System.currentTimeMillis()) {
+    var retained = 0L
+    File(directory, "exports").listFiles().orEmpty().sortedByDescending { it.lastModified() }.forEach { attempt ->
+        val size = attempt.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        if (now - attempt.lastModified() > 24L * 60 * 60 * 1000 || size > keepBytes - retained) {
+            attempt.deleteRecursively()
+        } else retained += size
+    }
+}
+
+internal fun removeExport(file: File) {
+    file.delete()
+    file.parentFile?.delete()
 }
 
 /** Scoped to the current credential identity, inside Cache.clear()'s protected tree. */

@@ -120,7 +120,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
                         exported.copyTo(File(directory, exported.name), overwrite = true)
                         "Saved to this app’s Downloads folder"
                     }
-                }
+                }.also { removeExport(exported) }
             }
             notice(saved.getOrElse { "Couldn’t save the file. Try again." })
         }

@@ -7,6 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExportFileTest {
+    @Test fun completedDownloadsCanBeRemovedAndHandoffCacheKeepsNewestWithinBudget() {
+        val root = Files.createTempDirectory("reader-export").toFile()
+        try {
+            val old = newExportFile(root, "old.pdf").apply { writeBytes(ByteArray(6)) }
+            old.parentFile.setLastModified(System.currentTimeMillis() - 1000)
+            val recent = newExportFile(root, "new.pdf").apply { writeBytes(ByteArray(6)) }
+            pruneExports(root, keepBytes = 6)
+            assertTrue(!old.exists())
+            assertTrue(recent.exists())
+            removeExport(recent)
+            assertTrue(!recent.parentFile.exists())
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun repeatedNamesCannotOverwriteOrDeleteAnEarlierHandoff() {
         val root = Files.createTempDirectory("reader-export").toFile()
         try {
