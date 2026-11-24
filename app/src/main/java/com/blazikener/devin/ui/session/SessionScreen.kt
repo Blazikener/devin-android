@@ -81,8 +81,8 @@ fun SessionScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val accessibility = remember(context) {
-        context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+    val accessibility = remember(ctx) {
+        ctx.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
     }
     val latestInput by rememberUpdatedState(input)
     val attachFocus = remember { FocusRequester() }
