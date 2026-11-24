@@ -24,8 +24,9 @@ data class NewSessionDraft(
     val repos: List<String> = emptyList(),
     @SerialName("playbook_id") val playbookId: String? = null,
     val attachments: List<DraftAttachment> = emptyList(),
-    // Idempotency marker for a Home/share argument already incorporated into this draft.
+    // Idempotency markers for the last Home contribution; fresh external shares require consent.
     @SerialName("last_initial_prompt") val lastInitialPrompt: String? = null,
+    @SerialName("last_initial_mode_override") val lastInitialModeOverride: String? = null,
     @SerialName("draft_version") val draftVersion: String? = null,
 ) {
     val isEmpty: Boolean

@@ -5,6 +5,8 @@ import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.createFingerprint
 import com.blazikener.devin.data.json
+import com.blazikener.devin.data.versionKey
+import com.blazikener.devin.data.withVersionFrom
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
@@ -12,6 +14,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreateSessionArgumentsTest {
+    @Test fun changedHomeModeAppliesWithoutReplayingItsOldTask() {
+        val original = NewSessionDraft().seedCreateDraft("Home task", "ultra")
+        val edited = original.copy(prompt = "Edited task", mode = "fast", draftVersion = "edited")
+        val changed = edited.seedCreateDraft("Home task", "plan")
+        assertEquals("Edited task", changed.prompt)
+        assertEquals("plan", changed.mode)
+        assertEquals(changed, changed.seedCreateDraft("Home task", "plan"))
+        assertNull(changed.seedCreateDraft("Home task", "default").mode)
+    }
+
+    @Test fun firstExplicitHomeModeAfterAnUnselectedModeRemainsActionable() {
+        val edited = NewSessionDraft().seedCreateDraft("Home task", null).copy(prompt = "Edited task", mode = "fast")
+        val changed = edited.seedCreateDraft("Home task", "ultra")
+        assertEquals("Edited task", changed.prompt)
+        assertEquals("ultra", changed.mode)
+    }
+
+    @Test fun freshSharesDoNotEraseThePreviousHomeModeHistory() {
+        val edited = NewSessionDraft().seedCreateDraft("Home task", "ultra").copy(prompt = "Edited task", mode = "fast")
+        val accepted = edited.withCreateArguments("Home task", null, freshIncoming = true)
+        assertEquals("Edited task\n\nHome task", accepted.prompt)
+        assertEquals(accepted, accepted.seedCreateDraft("Home task", "ultra"))
+    }
+
+    @Test fun sourceModeMetadataNeverChangesDraftOwnershipOrLegacyContentKeys() {
+        val legacy = NewSessionDraft(prompt = "Edited task", mode = "fast", lastInitialPrompt = "Home task")
+        val adopted = legacy.seedCreateDraft("Home task", "ultra")
+        assertEquals("fast", adopted.mode)
+        assertEquals(legacy.versionKey, adopted.versionKey)
+        val versioned = legacy.copy(draftVersion = "owned")
+        assertEquals("owned", adopted.withVersionFrom(versioned).draftVersion)
+        val restored = json.decodeFromString(NewSessionDraft.serializer(), json.encodeToString(NewSessionDraft.serializer(), adopted))
+        assertEquals(adopted, restored)
+        assertEquals("plan", restored.seedCreateDraft("Home task", "plan").mode)
+    }
+
     @Test fun repeatedHomeArgumentPreservesEditedTaskModeAndSubmittedIdentity() {
         val original = NewSessionDraft().seedCreateDraft("Home task", "fast")
         val edited = original.copy(prompt = "Edited task", mode = "ultra", draftVersion = "edited")
