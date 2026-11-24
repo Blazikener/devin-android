@@ -14,7 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ChevronRight
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -145,7 +145,7 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
         bottomBar = {
             if (!busy) Surface(color = MaterialTheme.colorScheme.surface) {
                 Column(
-                    Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = DevinDimens.contentInset, vertical = 12.dp),
+                    Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = DevinDimens.screenPadding, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -179,7 +179,7 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
                 Text("Your task is on its way.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = DevinDimens.contentInset).padding(top = 20.dp, bottom = 24.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = DevinDimens.screenPadding).padding(top = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -314,7 +314,7 @@ private fun SetupRow(title: String, value: String, icon: ImageVector, onClick: (
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Icon(Icons.AutoMirrored.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
