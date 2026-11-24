@@ -93,10 +93,11 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     val failedUploads = remember { mutableStateListOf<Upload>() }
     var uploading by remember { mutableStateOf(0) }
 
-    // Persist actual edits (including a fresh shared prompt), not re-entry. Another Create
-    // entry may have saved a newer draft while this one was below it on the back stack.
+    // Another Create entry may have saved a newer draft while this one was below it.
+    // Do not overwrite it on re-entry; refill an empty slot if that other entry submitted.
     LaunchedEffect(form) {
-        if (!created && form != lastSavedForm) {
+        val slotIsEmpty = g.settings.newSessionDraft().isEmpty
+        if (!created && (form != lastSavedForm || (slotIsEmpty && !form.isEmpty))) {
             g.settings.saveNewSessionDraft(form)
             lastSavedForm = form
         }
