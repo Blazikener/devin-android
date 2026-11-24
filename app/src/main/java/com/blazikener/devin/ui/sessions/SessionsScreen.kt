@@ -97,7 +97,8 @@ fun SessionsScreen(
                 focusSearch = false
                 focusManager.clearFocus()
                 keyboard?.hide()
-                listState.scrollToItem(0)
+                // Schedule the next measurement, including when an empty/loading feed has no list yet.
+                listState.requestScrollToItem(0)
             } else {
                 request.filter?.let(vm::setFilter)
                 if (request.search) focusSearch = true
