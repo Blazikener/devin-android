@@ -325,7 +325,9 @@ fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, ca
         DevinOutlinedSurface(Modifier.fillMaxWidth()) {
             Column {
                 OutlinedTextField(value, onChange, placeholder = { Text(hint) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = maxHeight).testTag("composer")
+                    // Measure the action row first; a tall draft must not push it behind the IME.
+                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth()
+                        .heightIn(min = 56.dp, max = maxHeight).testTag("composer")
                         .semantics { contentDescription = "Message" }
                         .onPreviewKeyEvent { e ->
                             if (enterToSend && e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed) {
