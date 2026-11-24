@@ -63,6 +63,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -92,11 +93,16 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateAttempt
+import com.blazikener.devin.data.createFingerprint
+import com.blazikener.devin.data.CreateResult
+import com.blazikener.devin.ui.create.CreateRecoveryWarning
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinOrb
+import com.blazikener.devin.ui.create.createModeOverride
 import com.blazikener.devin.ui.components.DevinRootShell
 import com.blazikener.devin.ui.navigation.RootDestination
 import com.blazikener.devin.ui.components.StatusDot
@@ -111,8 +117,11 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onOpen: (String) -> Unit,
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
-    onNewForm: (prompt: String) -> Unit,
+    onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
+    onCheckSessions: () -> Unit,
+    consumedCreateFingerprint: String? = null,
+    onConsumedCreateHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -132,7 +141,14 @@ fun HomeScreen(
     var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
     var modeChosen by rememberSaveable { mutableStateOf(false) }
     val mode = if (modeChosen) chosenMode else settings.defaultMode
-    var busy by remember { mutableStateOf(false) }
+    var posting by remember { mutableStateOf(false) }
+    val inFlight by g.createGate.inFlight.collectAsStateWithLifecycle()
+    val attempts by g.createGate.attempts.collectAsStateWithLifecycle()
+    var confirmation by remember { mutableStateOf<CreateAttempt?>(null) }
+    val busy = posting || inFlight
+    val warning = attempts.firstOrNull {
+        it.sessionId == null && (prompt.isBlank() || it.matches(prompt)) && (!it.dismissed || confirmation == it)
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var showModePicker by remember { mutableStateOf(false) }
     var greetingVisible by remember { mutableStateOf(false) }
@@ -141,6 +157,17 @@ fun HomeScreen(
     fun updatePrompt(value: String) {
         prompt = value
         error = null
+    }
+
+    LaunchedEffect(consumedCreateFingerprint) {
+        consumedCreateFingerprint?.let { fingerprint ->
+            if (createFingerprint(prompt) == fingerprint) {
+                prompt = ""
+                modeChosen = false
+                showModePicker = false
+            }
+            onConsumedCreateHandled()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -159,14 +186,15 @@ fun HomeScreen(
         statusVisible = true
     }
 
-    fun send() {
+    fun send(retry: CreateAttempt? = null) {
         val trimmed = prompt.trim()
-        if (trimmed.isEmpty() || busy) return
-        busy = true
+        if ((trimmed.isEmpty() && retry == null) || busy) return
+        val submittedFingerprint = retry?.fingerprint ?: createFingerprint(trimmed)
+        posting = true
         error = null
         scope.launch {
-            runCatching {
-                g.api.createSession(
+            val result = try {
+                if (retry != null) g.createGate.retryAnyway(retry) else g.createGate.submit(
                     CreateSessionRequest(
                         prompt = trimmed,
                         maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
@@ -174,14 +202,25 @@ fun HomeScreen(
                         devinMode = mode,
                     ),
                 )
-            }.onSuccess { session ->
-                prompt = ""
-                modeChosen = false
-                busy = false
-                onOpen(session.id)
-            }.onFailure { failure ->
-                error = failure.message ?: "Couldn't start the session"
-                busy = false
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                CreateResult.Failed(failure.message ?: "Couldn't start the session")
+            }
+            posting = false
+            when (result) {
+                is CreateResult.Open -> {
+                    if (createFingerprint(prompt) == submittedFingerprint) {
+                        prompt = ""
+                        modeChosen = false
+                        showModePicker = false
+                    }
+                    confirmation = null
+                    onOpen(result.sessionId)
+                    g.createGate.acknowledgeOpened(result.sessionId)
+                }
+                is CreateResult.NeedsConfirmation -> confirmation = result.attempt
+                is CreateResult.Failed -> error = result.message
+                CreateResult.Busy -> error = "A session is already starting. Check Sessions and try again."
             }
         }
     }
@@ -192,7 +231,7 @@ fun HomeScreen(
         onHome = {}, onSessions = { onSessions(null, false) },
         onNeedsYou = { onSessions(SessionFilter.NeedsYou, false) },
         onSearch = { onSessions(null, true) }, onSettings = onSettings,
-        onOpen = onOpen, onNew = { onNewForm("") },
+        onOpen = onOpen, onNew = { onNewForm("", null) },
     ) { openMenu ->
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -267,6 +306,15 @@ fun HomeScreen(
                     Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
+                    warning?.let { attempt ->
+                        CreateRecoveryWarning(
+                            attempt = attempt,
+                            onCheckRecents = onCheckSessions,
+                            onDismiss = { scope.launch { g.createGate.dismiss(attempt); confirmation = null } },
+                            onClear = { scope.launch { g.createGate.clear(attempt); if (confirmation == attempt) confirmation = null } },
+                            onRetry = { send(attempt) },
+                        )
+                    }
                     error?.let {
                         Text(
                             it,
@@ -291,7 +339,7 @@ fun HomeScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt) { onNewForm(it, createModeOverride(modeChosen, chosenMode)) }
                                 HomePromptField(
                                     prompt = prompt,
                                     onPromptChange = ::updatePrompt,
@@ -313,7 +361,7 @@ fun HomeScreen(
                             if (!compactIme) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                    HomeMoreOptionsButton(prompt, ::updatePrompt) { onNewForm(it, createModeOverride(modeChosen, chosenMode)) }
                                     Spacer(Modifier.width(8.dp))
                                     val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
                                     Row(

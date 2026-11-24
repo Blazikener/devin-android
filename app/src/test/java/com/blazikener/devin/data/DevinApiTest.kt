@@ -17,6 +17,50 @@ import org.junit.Before
 import org.junit.Test
 
 class DevinApiTest {
+    @Test
+    fun createUsesAFreshConnectionWithoutChangingGetConnectionReuse() = runBlocking {
+        repeat(2) { server.enqueue(MockResponse().setBody("""{"org_id":"org-1"}""")) }
+        server.enqueue(MockResponse().setBody("""{"session_id":"created"}"""))
+        api.self("cog_x")
+        api.self("cog_x")
+        api.createSession(CreateSessionRequest(prompt = "New connection"))
+        assertEquals(0, server.takeRequest().sequenceNumber)
+        assertEquals(1, server.takeRequest().sequenceNumber)
+        assertEquals(0, server.takeRequest().sequenceNumber)
+    }
+    @Test
+    fun createDoesNotReplayAfter408() = assertOneCreatePost(MockResponse().setResponseCode(408))
+
+    @Test
+    fun createDoesNotReplayAfter503EvenWithImmediateRetryAfter() =
+        assertOneCreatePost(MockResponse().setResponseCode(503).addHeader("Retry-After", "0"))
+
+    private fun assertOneCreatePost(response: MockResponse) = runBlocking {
+        server.enqueue(response)
+        server.enqueue(MockResponse().setBody("""{"session_id":"duplicate"}"""))
+        val failure = runCatching { api.createSession(CreateSessionRequest(prompt = "Create once")) }.exceptionOrNull()
+        assertEquals(response.status.split(' ')[1].toInt(), (failure as? ApiException)?.code)
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v3/organizations/org-1/sessions", request.path)
+        assertEquals("Create once", json.parseToJsonElement(request.body.readUtf8()).jsonObject["prompt"]?.jsonPrimitive?.content)
+    }
+    @Test
+    fun streamsPickedFileWithItsDisplayName() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"attachment_id":"file-1","name":"my note.txt","url":"https://example.test/note.txt"}"""))
+        val file = java.io.File.createTempFile("upload-test", ".txt")
+        try {
+            file.writeText("file contents")
+            api.upload("my note.txt", "text/plain", file)
+            val request = server.takeRequest()
+            val body = request.body.readUtf8()
+            assertEquals("/v3/organizations/org-1/attachments", request.path)
+            assertTrue(body.contains("filename=\"my note.txt\""))
+            assertTrue(body.contains("\r\n\r\nfile contents\r\n"))
+        } finally { file.delete() }
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var api: DevinApi
 

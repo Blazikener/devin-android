@@ -2,261 +2,400 @@ package com.blazikener.devin.ui.create
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.blazikener.devin.data.CreateSessionRequest
-import com.blazikener.devin.data.DEVIN_MODES
-import com.blazikener.devin.data.DraftAttachment
-import com.blazikener.devin.data.NewSessionDraft
-import com.blazikener.devin.data.Playbook
-import com.blazikener.devin.data.Repository
-import com.blazikener.devin.data.json
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.blazikener.devin.data.*
 import com.blazikener.devin.graph
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private data class Upload(val name: String, val url: String?, val error: String?)
+import com.blazikener.devin.ui.components.*
+import com.blazikener.devin.ui.theme.DevinDimens
+import kotlinx.coroutines.CancellationException
 
 private val DraftSaver = Saver<NewSessionDraft, String>(
     save = { json.encodeToString(NewSessionDraft.serializer(), it) },
     restore = { json.decodeFromString(NewSessionDraft.serializer(), it) },
 )
 
+private enum class SetupPicker(val title: String) {
+    Mode("Mode"), Repositories("Repositories"), Playbook("Playbook"), Options("More options")
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val g = ctx.graph
-    val settings = g.settings.value
-    val scope = rememberCoroutineScope()
-    val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withShared(initialPrompt)) }
-    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft()) }
-    var busy by remember { mutableStateOf(false) }
-    var created by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var repos by remember { mutableStateOf<List<Repository>>(emptyList()) }
-    var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
-    val playbook = playbooks.firstOrNull { it.id == form.playbookId }
-    var repoQuery by remember { mutableStateOf("") }
-    val failedUploads = remember { mutableStateListOf<Upload>() }
-    var uploading by remember { mutableStateOf(0) }
+fun CreateScreen(
+    initialPrompt: String?,
+    modeOverride: String? = null,
+    freshIncoming: Boolean = false,
+    onBack: () -> Unit,
+    onCheckSessions: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val graph = context.graph
+    val settings = graph.settings.value
+    val focus = LocalFocusManager.current
+    val saved = remember { graph.settings.newSessionDraft() }
+    val launchAttempts = remember { graph.createGate.attempts.value }
+    var recoveryPrompt by rememberSaveable {
+        mutableStateOf(initialPrompt?.takeIf { prompt -> launchAttempts.any { it.matches(prompt) } })
+    }
+    var sharedChoice by rememberSaveable {
+        mutableStateOf(saved.needsSharedChoice(initialPrompt, launchAttempts, freshIncoming))
+    }
+    var form by rememberSaveable(stateSaver = DraftSaver) {
+        mutableStateOf(saved.seedCreateDraft(initialPrompt, modeOverride, launchAttempts, freshIncoming))
+    }
+    var ownsDraft by rememberSaveable { mutableStateOf(graph.settings.hasNewSessionDraft() || !form.sameContentAs(saved)) }
+    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
+    val vm: CreateSessionViewModel = viewModel {
+        CreateSessionViewModel(graph.createGate, form.prompt, recoveryPrompt, graph.settings::wasNewSessionDraftConsumed)
+    }
+    val submission by vm.ui.collectAsStateWithLifecycle()
+    val busy = submission.submitting || submission.sessionId != null
+    val attachmentVm: AttachmentUploadsViewModel = viewModel { AttachmentUploadsViewModel(context.applicationContext, graph.api) }
+    val uploads by attachmentVm.uploads.items.collectAsStateWithLifecycle()
+    var picker by rememberSaveable { mutableStateOf<SetupPicker?>(null) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
 
-    // Another Create entry may have saved a newer draft while this one was below it.
-    // Do not overwrite it on re-entry; refill an empty slot if that other entry submitted.
-    LaunchedEffect(form) {
-        val slotIsEmpty = !g.settings.hasNewSessionDraft()
-        if (!created && (form != lastSavedForm || (slotIsEmpty && !form.isEmpty))) {
-            g.settings.saveNewSessionDraft(form)
+    // Persist synchronously at the edit boundary, including mode-only and ACU-only drafts.
+    fun update(next: NewSessionDraft) {
+        if (!next.sameContentAs(form)) {
+            ownsDraft = true
+            if (next.prompt.trim() != recoveryPrompt?.trim()) recoveryPrompt = null
+        }
+        form = next.withVersionFrom(form)
+        if (ownsDraft && vm.ui.value.sessionId == null && form != lastSavedForm) {
+            graph.settings.saveNewSessionDraft(form)
             lastSavedForm = form
         }
+        vm.clearError()
+    }
+    // Reconcile a consumed form on entry or after its saved task is explicitly cleared.
+    // Back and rotation must still never rewrite a newer draft.
+    LaunchedEffect(submission.confirmation) {
+        if (vm.ui.value.sessionId == null) {
+            if (graph.settings.wasNewSessionDraftConsumed(form)) {
+                form = graph.settings.newSessionDraft()
+                lastSavedForm = form
+                ownsDraft = graph.settings.hasNewSessionDraft()
+            }
+            if (ownsDraft && (form != lastSavedForm || !graph.settings.hasNewSessionDraft())) {
+                graph.settings.saveNewSessionDraft(form)
+                lastSavedForm = form
+            }
+        }
+    }
+    LaunchedEffect(submission.sessionId) {
+        submission.sessionId?.let {
+            onCreated(it)
+            vm.acknowledgeCreated(it)
+        }
+    }
+    LaunchedEffect(uploads) {
+        val completed = attachmentVm.uploads.items.value.filter { it.result != null }
+        if (completed.isNotEmpty()) {
+            update(form.copy(attachments = (form.attachments + completed.mapNotNull { it.result }).distinctBy { it.url }))
+            completed.forEach { attachmentVm.uploads.remove(it.id) }
+        }
+    }
+    val files = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        uris.forEach(attachmentVm.uploads::add)
     }
 
-    LaunchedEffect(Unit) {
-        launch {
-            runCatching {
-                val items = mutableListOf<Repository>()
-                var after: String? = null
-                var pages = 0
-                while (pages < 20) {
-                    val page = g.api.repositories(first = 100, after = after)
-                    pages++
-                    items += page.items
-                    repos = items.toList()
-                    if (!page.hasNextPage) break
-                    val next = page.endCursor ?: break
-                    if (next == after) break
-                    after = next
-                }
-            }
-        }
-        launch {
-            runCatching {
-                val items = mutableListOf<Playbook>()
-                var after: String? = null
-                var pages = 0
-                while (pages < 20) {
-                    val page = g.api.playbooks(first = 200, after = after)
-                    pages++
-                    items += page.items
-                    playbooks = items.toList()
-                    if (!page.hasNextPage) break
-                    val next = page.endCursor ?: break
-                    if (next == after) break
-                    after = next
-                }
-            }
-        }
+    var repos by remember { mutableStateOf<List<Repository>>(emptyList()) }
+    var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
+    var repoLoading by remember { mutableStateOf(true) }
+    var playbookLoading by remember { mutableStateOf(true) }
+    var repoError by remember { mutableStateOf(false) }
+    var playbookError by remember { mutableStateOf(false) }
+    var repoAttempt by remember { mutableIntStateOf(0) }
+    var playbookAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(repoAttempt) {
+        repoLoading = true; repoError = false
+        try {
+            val all = mutableListOf<Repository>()
+            var after: String? = null
+            do {
+                val page = graph.api.repositories(first = 100, after = after)
+                all += page.items
+                repos = all.distinctBy { it.fullName }
+                val next = page.endCursor
+                if (!page.hasNextPage || next == null || next == after) break
+                after = next
+            } while (true)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            repoError = true
+        } finally { repoLoading = false }
     }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        uris.forEach { uri ->
-            uploading++
-            scope.launch {
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
-                val r = runCatching {
-                    val bytes = withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
-                    g.api.upload(name, ctx.contentResolver.getType(uri) ?: "application/octet-stream", bytes)
-                }
-                r.fold(
-                    { form = form.copy(attachments = form.attachments + DraftAttachment(it.name, it.url)) },
-                    { failedUploads += Upload(name, null, it.message) },
-                )
-                uploading--
-            }
-        }
+    LaunchedEffect(playbookAttempt) {
+        playbookLoading = true; playbookError = false
+        try {
+            val all = mutableListOf<Playbook>()
+            var after: String? = null
+            do {
+                val page = graph.api.playbooks(first = 200, after = after)
+                all += page.items
+                playbooks = all.distinctBy { it.id }
+                val next = page.endCursor
+                if (!page.hasNextPage || next == null || next == after) break
+                after = next
+            } while (true)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            playbookError = true
+        } finally { playbookLoading = false }
     }
 
-    fun create() {
-        val prompt = form.prompt
-        if (prompt.isBlank()) { error = "Tell Devin what to do"; return }
-        busy = true; error = null
-        scope.launch {
-            runCatching {
-                g.api.createSession(
-                    CreateSessionRequest(
-                        prompt = prompt.trim(),
-                        title = form.title.trim().ifEmpty { null },
-                        tags = form.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
-                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 },
-                        playbookId = form.playbookId,
-                        repos = form.repos.ifEmpty { null },
-                        attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
-                        createAsUserId = settings.createAsUserId,
-                        devinMode = form.mode,
+    Scaffold(
+        topBar = {
+            DevinTopBar("New session", navigationIcon = {
+                DevinIconButton("Back", Icons.AutoMirrored.Outlined.ArrowBack, onBack)
+            }, actions = {
+                TextButton(onClick = { confirmClear = true }, enabled = !busy && (!form.isEmpty || uploads.isNotEmpty())) { Text("Clear") }
+            })
+        },
+        bottomBar = {
+            if (!busy) Surface(color = MaterialTheme.colorScheme.surface) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = DevinDimens.screenPadding, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            if (attachmentVm.uploads.items.value.isEmpty()) {
+                                focus.clearFocus()
+                                recoveryPrompt = null
+                                vm.submit(form, settings.createAsUserId, defaultAcuLimit = settings.defaultAcuLimit)
+                            }
+                        },
+                        enabled = !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create"),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Text("Start session", Modifier.weight(1f))
+                        Icon(Icons.Outlined.ArrowUpward, null)
+                    }
+                    Text(
+                        if (uploads.isNotEmpty()) "Finish uploading or remove files to start" else "Draft saved on this device",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                )
-            }.onSuccess {
-                created = true
-                g.settings.saveNewSessionDraft(NewSessionDraft())
-                onCreated(it.id)
+                }
             }
-                .onFailure { error = it.message; busy = false }
-        }
-    }
-
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("New session") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-        )
-    }) { pad ->
-        Column(
-            Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        },
+    ) { padding ->
+        if (busy) {
+            if (submission.submitting) Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                SessionLaunchCue(Modifier.fillMaxWidth())
+            }
+        } else Column(
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = DevinDimens.screenPadding).padding(top = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            OutlinedTextField(
-                value = form.prompt, onValueChange = { form = form.copy(prompt = it); error = null }, label = { Text("What should Devin do?") },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp).testTag("prompt"),
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { picker.launch("*/*") }) {
-                    Icon(Icons.Outlined.AttachFile, null, Modifier.size(18.dp)); Text(" Attach")
-                }
-                if (uploading > 0) CircularProgressIndicator(Modifier.padding(start = 12.dp).size(18.dp), strokeWidth = 2.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Give it a good start.", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+                Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (form.attachments.isNotEmpty() || failedUploads.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                form.attachments.forEach { a ->
-                    InputChip(selected = false, onClick = { form = form.copy(attachments = form.attachments - a) },
-                        label = { Text(a.name) },
-                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove", Modifier.size(16.dp)) })
-                }
-                failedUploads.toList().forEach { u ->
-                    InputChip(selected = true, onClick = { failedUploads.remove(u) },
-                        label = { Text("${u.name} — failed") },
-                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove", Modifier.size(16.dp)) })
-                }
+            submission.confirmation?.let { attempt ->
+                if (recoveryPrompt?.let(attempt::matches) == true) Text(
+                    "The shared task has a previous attempt. Your saved draft is kept below.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                CreateRecoveryWarning(
+                    attempt = attempt,
+                    onCheckRecents = onCheckSessions,
+                    onDismiss = { recoveryPrompt = null; vm.dismissWarning() },
+                    onClear = { vm.clearAttempt(attempt) },
+                    onRetry = if (uploads.isEmpty()) ({
+                        focus.clearFocus()
+                        vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
+                    }) else null,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                )
             }
-            Text("Mode", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DEVIN_MODES.forEach { (value, label) -> FilterChip(selected = form.mode == value, onClick = { form = form.copy(mode = value) }, label = { Text(label) }) }
-            }
-            if (repos.isNotEmpty()) {
-                Text("Repositories", style = MaterialTheme.typography.labelLarge)
-                OutlinedTextField(value = repoQuery, onValueChange = { repoQuery = it }, placeholder = { Text("Filter repositories") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val q = repoQuery.trim().lowercase()
-                    (repos.filter { it.fullName in form.repos } + repos.filter { it.fullName !in form.repos && (q.isEmpty() || it.fullName.lowercase().contains(q)) }.take(12)).forEach { r ->
-                        val on = r.fullName in form.repos
-                        FilterChip(selected = on, onClick = { form = form.copy(repos = if (on) form.repos - r.fullName else form.repos + r.fullName) }, label = { Text(r.fullName.ifEmpty { r.name }) })
-                    }
-                }
-            }
-            if (playbooks.isNotEmpty()) {
-                var open by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }) {
-                    OutlinedTextField(
-                        value = playbook?.let { it.macro ?: it.title } ?: "No playbook", onValueChange = {}, readOnly = true,
-                        label = { Text("Playbook") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(open) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            DevinOutlinedSurface(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp)) {
+                    TextField(
+                        value = form.prompt, onValueChange = { update(form.copy(prompt = it)) },
+                        placeholder = { Text("What should Devin do?") },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag("prompt").semantics { contentDescription = "Task" },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        ),
                     )
-                    ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                        DropdownMenuItem(text = { Text("No playbook") }, onClick = { form = form.copy(playbookId = null); open = false })
-                        playbooks.forEach { p -> DropdownMenuItem(text = { Text(p.macro?.let { m -> "$m — ${p.title}" } ?: p.title) }, onClick = { form = form.copy(playbookId = p.id); open = false }) }
+                    TextButton(onClick = { files.launch("*/*") }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Icon(Icons.Outlined.AttachFile, null, Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp)); Text("Attach context")
+                    }
+                    if (form.attachments.isNotEmpty() || uploads.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        form.attachments.forEach { attachment ->
+                            InputChip(
+                                selected = false,
+                                onClick = { update(form.copy(attachments = form.attachments - attachment)) },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(attachment.name) },
+                                trailingIcon = { Icon(Icons.Outlined.Close, "Remove ${attachment.name}") },
+                            )
+                        }
+                        uploads.forEach { upload -> AttachmentUploadChip(upload) { attachmentVm.uploads.remove(upload.id) } }
                     }
                 }
             }
-            OutlinedTextField(value = form.title, onValueChange = { form = form.copy(title = it) }, label = { Text("Title (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = form.tags, onValueChange = { form = form.copy(tags = it) }, label = { Text("Tags, comma separated") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = form.acu, onValueChange = { form = form.copy(acu = it.filter(Char::isDigit)) }, label = { Text("Max ACUs (optional)") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = ::create, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
+            Column {
+                Text("Session setup", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp).semantics { heading() })
+                SetupRow("Mode", DEVIN_MODES.firstOrNull { it.first == form.mode }?.second ?: form.mode.orEmpty(), Icons.Outlined.Bolt) { picker = SetupPicker.Mode }
+                SetupRow("Repositories", form.repos.takeIf { it.isNotEmpty() }?.joinToString() ?: "None selected", Icons.Outlined.Folder) { picker = SetupPicker.Repositories }
+                SetupRow("Playbook", playbooks.firstOrNull { it.id == form.playbookId }?.title ?: form.playbookId ?: "None", Icons.Outlined.Description) { picker = SetupPicker.Playbook }
+                SetupRow("More options", if (form.hasValidAcuLimit) "ACU limit, title and tags" else "Review the ACU limit", Icons.Outlined.Tune) { picker = SetupPicker.Options }
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); error = null }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            submission.error?.let { message ->
+                Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive })
+            }
         }
     }
+
+    picker?.let { selected ->
+        ModalBottomSheet(onDismissRequest = { picker = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            var query by rememberSaveable(selected) { mutableStateOf("") }
+            Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 20.dp).padding(bottom = 20.dp).heightIn(max = 580.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(selected.title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                    TextButton(onClick = { picker = null }) { Text("Done") }
+                }
+                if (selected == SetupPicker.Repositories || selected == SetupPicker.Playbook) {
+                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Search ${selected.title.lowercase()}") }, singleLine = true)
+                }
+                when (selected) {
+                    SetupPicker.Mode -> LazyColumn(Modifier.selectableGroup()) {
+                        items(DEVIN_MODES) { (mode, label) ->
+                            RadioChoice(label, form.mode == mode) { update(form.copy(mode = mode)) }
+                        }
+                    }
+                    SetupPicker.Repositories -> {
+                        PickerStatus(repoLoading, repoError, repos.isEmpty(), "repositories") { repoAttempt++ }
+                        val names = (form.repos + repos.map { it.fullName }).distinct().filter { it.contains(query, ignoreCase = true) }
+                        LazyColumn(Modifier.weight(1f, fill = false)) {
+                            if (names.isEmpty() && !repoLoading && !repoError) item { Text("No matching repositories", Modifier.padding(vertical = 16.dp)) }
+                            items(names, key = { it }) { name ->
+                                Row(
+                                    Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = name in form.repos, role = Role.Checkbox) {
+                                        update(form.copy(repos = if (it) form.repos + name else form.repos - name))
+                                    }.padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(name in form.repos, onCheckedChange = null)
+                                    Text(name, Modifier.padding(start = 12.dp).weight(1f))
+                                }
+                            }
+                        }
+                    }
+                    SetupPicker.Playbook -> {
+                        PickerStatus(playbookLoading, playbookError, playbooks.isEmpty(), "playbooks") { playbookAttempt++ }
+                        LazyColumn(Modifier.weight(1f, fill = false).selectableGroup()) {
+                            item { RadioChoice("None", form.playbookId == null) { update(form.copy(playbookId = null)) } }
+                            // A saved selection stays visible even if its metadata is unavailable offline.
+                            if (form.playbookId != null && playbooks.none { it.id == form.playbookId }) item {
+                                RadioChoice(form.playbookId.orEmpty(), true) { }
+                            }
+                            items(playbooks.filter { it.title.contains(query, true) || it.macro?.contains(query, true) == true }, key = { it.id }) { playbook ->
+                                RadioChoice(playbook.macro?.let { "$it — ${playbook.title}" } ?: playbook.title, form.playbookId == playbook.id) { update(form.copy(playbookId = playbook.id)) }
+                            }
+                        }
+                    }
+                    SetupPicker.Options -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        OutlinedTextField(form.acu, { update(form.copy(acu = it)) }, Modifier.fillMaxWidth(), label = { Text("ACU limit (optional)") },
+                            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), isError = !form.hasValidAcuLimit,
+                            supportingText = { Text(if (!form.hasValidAcuLimit) "Enter a whole number greater than 0" else if (settings.defaultAcuLimit != null) "Leave blank for your default (${settings.defaultAcuLimit})" else "Leave blank for the account default") })
+                        OutlinedTextField(form.title, { update(form.copy(title = it)) }, Modifier.fillMaxWidth(), label = { Text("Title (optional)") }, singleLine = true)
+                        OutlinedTextField(form.tags, { update(form.copy(tags = it)) }, Modifier.fillMaxWidth(), label = { Text("Tags (optional)") }, supportingText = { Text("Separate tags with commas") })
+                    }
+                }
+            }
+        }
+    }
+    if (sharedChoice) AlertDialog(
+        onDismissRequest = { sharedChoice = false }, title = { Text("Keep your saved task?") },
+        text = { Text(if (launchAttempts.any { it.matches(form.prompt) }) "This draft's task may already have started. Use the incoming task as a new draft, or keep this draft unchanged." else "There is already a task in this draft. Add the incoming task to it, or keep the draft unchanged.") },
+        confirmButton = { TextButton(onClick = { update(form.withCreateArguments(initialPrompt, modeOverride, launchAttempts, freshIncoming)); sharedChoice = false }) { Text(if (launchAttempts.any { it.matches(form.prompt) }) "Use shared task" else "Add to draft") } },
+        dismissButton = { TextButton(onClick = { sharedChoice = false }) { Text("Keep draft") } },
+    )
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false }, title = { Text("Clear this draft?") }, text = {
+            Text(if (submission.uncertain) "This clears only the editable draft. The previous session may already have started; use Clear previous task in its warning to remove that saved task and its retry protection."
+            else "The task, context and setup choices will be removed.")
+        },
+        confirmButton = { TextButton(onClick = {
+            attachmentVm.uploads.clear()
+            recoveryPrompt = null
+            graph.settings.consumeNewSessionDraft(form)
+            form = graph.settings.newSessionDraft()
+            lastSavedForm = form
+            ownsDraft = graph.settings.hasNewSessionDraft()
+            vm.clearError()
+            confirmClear = false
+        }) { Text("Clear draft") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SetupRow(title: String, value: String, icon: ImageVector, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClickLabel = "Choose $title", onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+private fun RadioChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected, role = Role.RadioButton, onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected, onClick = null)
+        Text(label, Modifier.weight(1f).padding(start = 12.dp))
+    }
+}
+
+@Composable
+private fun PickerStatus(loading: Boolean, error: Boolean, empty: Boolean, kind: String, retry: () -> Unit) {
+    if (loading) Row(verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        Text("Loading $kind…", Modifier.padding(start = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
+    } else if (error) Column {
+        Text("Couldn't load $kind. Your saved choices are kept.", color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        TextButton(onClick = retry) { Text("Retry") }
+    } else if (empty) Text("No $kind available", color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -30,9 +30,27 @@ fun NavHostController.openSessionFromLaunch(id: String) {
     navigate(Routes.session(id))
 }
 
+/** Keep prompt cleanup on Home until that parent is composed again, including after process restore. */
+fun NavHostController.openCreatedSessionFromLaunch(id: String, promptFingerprint: String) {
+    getBackStackEntry(Routes.Home).savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = promptFingerprint
+    openSessionFromLaunch(id)
+}
+
 fun NavHostController.openCreateFromLaunch(prompt: String?) {
     // A new entry must initialize from the shared prompt, not reuse another form's remembered state.
     navigate(Routes.create(prompt.orEmpty()))
+    currentBackStackEntry?.savedStateHandle?.set(SessionNavigationState.IncomingCreate, true)
+}
+
+/** Recovery is a root switch, not a new Sessions entry above the unresolved Create form. */
+fun NavHostController.showSessionsFromCreateRecovery() {
+    if (!popBackStack(Routes.Sessions, inclusive = false)) {
+        popBackStack(Routes.Home, inclusive = false)
+        showSessionsRoot()
+    }
+    currentBackStackEntry?.savedStateHandle?.set(
+        SessionNavigationState.SessionsRequest, SessionsRequest(filter = SessionFilter.All, recoverCreate = true).encode(),
+    )
 }
 
 fun NavHostController.clearProtectedNavigation() {
