@@ -66,6 +66,7 @@ import com.blazikener.devin.graph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private data class Upload(val name: String, val url: String?, val error: String?)
 
@@ -165,7 +166,12 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
         scope.launch {
             runCatching {
                 val snapshot = form
-                val version = g.settings.saveNewSessionDraft(snapshot)
+                val version = if (snapshot != lastSavedForm) {
+                    g.settings.saveNewSessionDraft(snapshot).also { lastSavedForm = snapshot }
+                } else {
+                    // Re-entry is not an edit: never overwrite a newer shared draft just to submit.
+                    g.settings.newSessionDraftVersion(snapshot) ?: UUID.randomUUID().toString()
+                }
                 when (val result = g.createGate.submit(
                     CreateSessionRequest(
                         prompt = prompt.trim(),

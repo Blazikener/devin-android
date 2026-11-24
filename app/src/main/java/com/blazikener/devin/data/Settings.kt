@@ -110,6 +110,11 @@ class SettingsStore(context: Context) {
         version
     }
 
+    /** An older back-stack form may submit without taking ownership of a newer saved share. */
+    internal fun newSessionDraftVersion(d: NewSessionDraft): String? = synchronized(drafts) {
+        if (d == newSessionDraft()) drafts.getString(DRAFT_VERSION_KEY, LEGACY_DRAFT_VERSION) else null
+    }
+
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
         remove(LEGACY_NEW_SESSION_KEY)
         if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
