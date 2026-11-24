@@ -90,7 +90,10 @@ class MainActivity : ComponentActivity() {
                             onSessions = { filter, search ->
                                 nav.navigate("sessions?filter=${filter?.name.orEmpty()}&search=$search")
                             },
-                            onNewForm = { nav.navigate("create?prompt=${enc(it)}") },
+                            onNewForm = { prompt, modeOverride ->
+                                val mode = modeOverride?.let { "&mode=${enc(it)}" }.orEmpty()
+                                nav.navigate("create?prompt=${enc(prompt)}$mode")
+                            },
                             onSettings = { nav.navigate("settings") },
                         )
                     }
@@ -117,9 +120,15 @@ class MainActivity : ComponentActivity() {
                         val id = e.arguments!!.getString("id")!!
                         SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate("session/$it") })
                     }
-                    composable("create?prompt={prompt}", arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
+                    composable(
+                        "create?prompt={prompt}&mode={mode}",
+                        arguments = listOf(
+                            navArgument("prompt") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        ),
+                    ) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
-                        CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
+                        CreateScreen(p, e.arguments?.getString("mode"), onBack = { nav.back() }, onCreated = { id ->
                             nav.navigate("session/$id") { popUpTo("home") }
                         })
                     }

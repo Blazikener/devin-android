@@ -93,4 +93,41 @@ class CreateSessionViewModelTest {
         assertEquals("retry-session", vm.ui.value.sessionId)
         assertEquals(1, draftsCleared)
     }
+
+    @Test
+    fun homeModeOverridesDraftModeInFormAndRequest() = runTest {
+        val savedDraft = NewSessionDraft(prompt = "Existing draft", mode = "fast")
+        val selectedMode = createModeOverride(modeChosen = true, chosenMode = "ultra")
+        val form = savedDraft.withCreateArguments("From Home", selectedMode)
+        var request: CreateSessionRequest? = null
+        val vm = model(
+            createSession = { request = it; Session("new-session") },
+            clearDraft = {},
+        )
+
+        assertEquals("ultra", form.mode)
+        vm.submit(form, null)
+        runCurrent()
+        assertEquals("ultra", request?.devinMode)
+        assertEquals("Existing draft\n\nFrom Home", request?.prompt)
+    }
+
+    @Test
+    fun explicitDefaultClearsDraftModeButNoSelectionPreservesIt() = runTest {
+        val savedDraft = draft.copy(mode = "fast")
+        val explicitDefault = createModeOverride(modeChosen = true, chosenMode = null)
+        val noSelection = createModeOverride(modeChosen = false, chosenMode = null)
+        var request: CreateSessionRequest? = null
+        val vm = model(
+            createSession = { request = it; Session("new-session") },
+            clearDraft = {},
+        )
+
+        assertEquals("fast", savedDraft.withCreateArguments(null, noSelection).mode)
+        val form = savedDraft.withCreateArguments(null, explicitDefault)
+        assertEquals(null, form.mode)
+        vm.submit(form, null)
+        runCurrent()
+        assertEquals(CreateSessionRequest(prompt = draft.prompt), request)
+    }
 }

@@ -99,6 +99,7 @@ import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinOrb
 import com.blazikener.devin.ui.components.StatusDot
 import com.blazikener.devin.ui.components.rememberReducedMotion
+import com.blazikener.devin.ui.create.createModeOverride
 import com.blazikener.devin.ui.sessions.SessionsViewModel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -109,7 +110,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onOpen: (String) -> Unit,
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
-    onNewForm: (prompt: String) -> Unit,
+    onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -140,6 +141,10 @@ fun HomeScreen(
     fun updatePrompt(value: String) {
         prompt = value
         error = null
+    }
+
+    fun openMoreOptions(text: String) {
+        onNewForm(text, createModeOverride(modeChosen, chosenMode))
     }
 
     LaunchedEffect(Unit) {
@@ -205,7 +210,7 @@ fun HomeScreen(
                 onSettings = { navigateFromDrawer(onSettings) },
                 onOpen = { id -> navigateFromDrawer { onOpen(id) } },
                 onViewAll = { navigateFromDrawer { onSessions(null, false) } },
-                onNewSession = { navigateFromDrawer { onNewForm("") } },
+                onNewSession = { navigateFromDrawer { onNewForm("", null) } },
             )
         },
     ) {
@@ -309,7 +314,7 @@ fun HomeScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, ::openMoreOptions)
                                 HomePromptField(
                                     prompt = prompt,
                                     onPromptChange = ::updatePrompt,
@@ -331,7 +336,7 @@ fun HomeScreen(
                             if (!compactIme) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                    HomeMoreOptionsButton(prompt, ::updatePrompt, ::openMoreOptions)
                                     Spacer(Modifier.width(8.dp))
                                     val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
                                     Row(
