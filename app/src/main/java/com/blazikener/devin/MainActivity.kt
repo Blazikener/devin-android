@@ -137,6 +137,8 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
+                            // popUpTo only clears active entries, not saveState root snapshots/VMs.
+                            nav.clearBackStack(Routes.Sessions)
                             nav.navigate("login") { popUpTo(0) { inclusive = true } }
                         })
                     }
