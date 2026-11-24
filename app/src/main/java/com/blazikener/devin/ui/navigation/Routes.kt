@@ -10,14 +10,15 @@ object Routes {
     const val Settings = "settings"
     const val Sessions = "sessions?filter={filter}&search={search}"
     const val Session = "session/{id}"
-    const val Create = "create?prompt={prompt}"
+    const val Create = "create?prompt={prompt}&mode={mode}"
     // Reserved for the Reader implementation. Origin is the opening tab, not a new session.
     const val Reader = "reader/{id}?file={file}&version={version}&origin={origin}"
 
     fun sessions(filter: SessionFilter? = null, search: Boolean = false) =
         "sessions?filter=${filter?.name.orEmpty()}&search=$search"
     fun session(id: String) = "session/${encode(id)}"
-    fun create(prompt: String = "") = "create?prompt=${encode(prompt)}"
+    fun create(prompt: String = "", modeOverride: String? = null) =
+        "create?prompt=${encode(prompt)}" + (modeOverride?.let { "&mode=${encode(it)}" } ?: "")
     fun reader(id: String, file: String, version: String = "", origin: SessionTab = SessionTab.Chat) =
         "reader/${encode(id)}?file=${encode(file)}&version=${encode(version)}&origin=${origin.name}"
 
