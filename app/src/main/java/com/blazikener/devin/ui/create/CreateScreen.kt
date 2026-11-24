@@ -88,8 +88,9 @@ fun CreateScreen(
         }
         vm.clearError()
     }
-    // Arguments are saved once per entry; Back and rotation must not rewrite a newer draft.
-    LaunchedEffect(Unit) {
+    // Reconcile a consumed form on entry or after its saved task is explicitly cleared.
+    // Back and rotation must still never rewrite a newer draft.
+    LaunchedEffect(submission.confirmation) {
         if (vm.ui.value.sessionId == null) {
             if (graph.settings.wasNewSessionDraftConsumed(form)) {
                 form = graph.settings.newSessionDraft()
@@ -218,6 +219,7 @@ fun CreateScreen(
                     attempt = attempt,
                     onCheckRecents = onCheckSessions,
                     onDismiss = vm::dismissWarning,
+                    onClear = { vm.clearAttempt(attempt) },
                     onRetry = if (uploads.isEmpty()) ({
                         focus.clearFocus()
                         vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
@@ -336,12 +338,11 @@ fun CreateScreen(
     )
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false }, title = { Text("Clear this draft?") }, text = {
-            Text(if (submission.uncertain) "Check Sessions first: the previous session may already have started. Clearing removes this draft and resolves the warning so you can start a new task."
+            Text(if (submission.uncertain) "This clears only the editable draft. The previous session may already have started; use Clear previous task in its warning to remove that saved task and its retry protection."
             else "The task, context and setup choices will be removed.")
         },
         confirmButton = { TextButton(onClick = {
             attachmentVm.uploads.clear()
-            vm.resolveUncertain(form)
             graph.settings.consumeNewSessionDraft(form)
             form = graph.settings.newSessionDraft()
             lastSavedForm = form

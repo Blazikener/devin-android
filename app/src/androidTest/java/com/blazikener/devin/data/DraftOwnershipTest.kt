@@ -82,6 +82,32 @@ class DraftOwnershipTest {
         assertTrue(store.wasNewSessionDraftConsumed(original))
     }
 
+    @Test fun clearingOlderSamePromptEditorNeverConsumesNewerAttemptOrSetup() = runBlocking {
+        val samePrompt = original.copy(acu = "50", mode = "ultra", draftVersion = "newer")
+        val attempt = pending(samePrompt)
+        store.saveNewSessionDraft(samePrompt)
+        store.createAttempts.write(listOf(attempt))
+        store.consumeNewSessionDraft(original)
+        assertEquals(samePrompt, store.newSessionDraft())
+        assertEquals(listOf(attempt), SettingsStore(context).createAttempts.read())
+        assertFalse(store.wasNewSessionDraftConsumed(samePrompt))
+    }
+
+    @Test fun setupEditsCanClearDraftAndThenExplicitlyClearPreviousTask() = runBlocking {
+        val gate = CreateSessionGate(store.createAttempts, { throw ApiException(500, "Uncertain") })
+        gate.submit(original.toCreateRequest(null), original, original.versionKey)
+        val attempt = gate.attempts.value.single()
+        val edited = original.copy(acu = "50", draftVersion = "edited")
+        store.saveNewSessionDraft(edited)
+        store.consumeNewSessionDraft(edited)
+        assertEquals(listOf(attempt), SettingsStore(context).createAttempts.read())
+        gate.clear(attempt)
+        assertTrue(SettingsStore(context).createAttempts.read().isEmpty())
+        assertFalse(store.hasNewSessionDraft())
+        assertTrue(store.wasNewSessionDraftConsumed(original))
+        assertTrue(store.wasNewSessionDraftConsumed(edited))
+    }
+
     @Test fun resolvedRequestDefaultNeverBecomesAnEditableOverrideAfterRejection() = runBlocking {
         val editable = original.copy(acu = "")
         val submitted = pending(editable, acu = 20)

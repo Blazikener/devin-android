@@ -193,34 +193,44 @@ class CreateSessionViewModelTest {
         assertEquals(1, calls)
         assertTrue(vm.ui.value.uncertain)
         g.submit(CreateSessionRequest(prompt = "Different task"))
-        vm.resolveUncertain(draft)
+        vm.clearAttempt(vm.ui.value.confirmation!!)
         runCurrent()
         assertEquals(1, attempts.records.size)
         assertTrue(attempts.records.single().matches("Different task"))
         assertNull(attempts.editable)
     }
 
-    @Test fun clearingAnUnrelatedFormNeverDropsTheDisplayedWarningProtection() = runTest {
-        val g = gate { throw ApiException(500, "Uncertain") }
+    @Test fun explicitSavedTaskClearAfterSetupEditsKeepsEditsAndUnlocksThePrompt() = runTest {
+        var calls = 0
+        val g = gate { calls++; throw ApiException(500, "Uncertain") }
         val vm = model(g)
         vm.submit(draft, null)
         runCurrent()
-        vm.resolveUncertain(draft.copy(prompt = "Different task", draftVersion = "b"))
+        val edited = draft.copy(acu = "50", mode = "ultra", draftVersion = "b")
+        attempts.editable = edited
+        vm.clearAttempt(vm.ui.value.confirmation!!)
         runCurrent()
-        assertTrue(attempts.records.single().matches(draft.prompt))
-        assertEquals(draft, attempts.editable)
-        assertTrue(g.submit(draft.toCreateRequest(null)) is CreateResult.NeedsConfirmation)
+        assertTrue(attempts.records.isEmpty())
+        assertEquals(edited, attempts.editable)
+        assertEquals(setOf(draft.versionKey), attempts.consumed)
+        vm.submit(edited, null)
+        runCurrent()
+        assertEquals(2, calls)
+        assertEquals(50, attempts.records.single().submitted?.request?.maxAcuLimit)
     }
 
-    @Test fun olderFormWithSamePromptCannotClearNewerSnapshotOrItsSavedSetup() = runTest {
+    @Test fun staleSavedTaskClearCannotRemoveANewerSamePromptAttempt() = runTest {
         val newer = draft.copy(acu = "50", mode = "ultra", draftVersion = "newer")
         val g = gate { throw ApiException(500, "Uncertain") }
+        g.submit(draft.toCreateRequest(null), draft, draft.versionKey)
+        val oldAttempt = attempts.records.single()
+        g.clear(oldAttempt)
         attempts.editable = newer
         g.submit(newer.toCreateRequest(null), newer, newer.versionKey)
         val before = attempts.records.single()
         val olderForm = model(g)
         assertTrue(olderForm.ui.value.needsRetryConfirmation(draft))
-        olderForm.resolveUncertain(draft)
+        olderForm.clearAttempt(oldAttempt)
         runCurrent()
         assertEquals(listOf(before), attempts.records)
         assertEquals(newer, attempts.editable)

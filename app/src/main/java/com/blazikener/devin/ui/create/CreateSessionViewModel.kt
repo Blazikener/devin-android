@@ -50,19 +50,15 @@ internal class CreateSessionViewModel(
         viewModelScope.launch { gate.acknowledgeOpened(sessionId) }
     }
 
-    fun resolveUncertain(form: NewSessionDraft) {
-        val attempt = _ui.value.confirmation?.takeIf { it.submitted?.draftVersion == form.versionKey }
-            ?: gate.attempts.value.firstOrNull { it.submitted?.draftVersion == form.versionKey }
-        if (attempt == null) {
-            // Clear this editor without dismissing or consuming another entry's attempt.
-            _ui.value = _ui.value.copy(confirmation = null, error = null)
-            return
-        }
+    /** The user confirmed this exact saved task, independently of the editable draft. */
+    fun clearAttempt(attempt: CreateAttempt) {
         viewModelScope.launch {
             gate.clear(attempt)
-            _ui.value = _ui.value.copy(confirmation = gate.attempts.value.firstOrNull {
-                it.fingerprint == attempt.fingerprint && it.sessionId == null && !it.dismissed
-            }, error = null)
+            if (_ui.value.confirmation == attempt) {
+                _ui.value = _ui.value.copy(confirmation = gate.attempts.value.firstOrNull {
+                    it.fingerprint == attempt.fingerprint && it.sessionId == null && !it.dismissed
+                }, error = null)
+            }
         }
     }
 

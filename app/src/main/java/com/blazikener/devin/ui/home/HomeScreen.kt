@@ -311,11 +311,9 @@ fun HomeScreen(
                             attempt = attempt,
                             onCheckRecents = onCheckSessions,
                             onDismiss = { scope.launch { g.createGate.dismiss(attempt); confirmation = null } },
+                            onClear = { scope.launch { g.createGate.clear(attempt); if (confirmation == attempt) confirmation = null } },
                             onRetry = { send(attempt) },
                         )
-                        TextButton(onClick = {
-                            scope.launch { g.createGate.clear(attempt); updatePrompt(""); confirmation = null }
-                        }) { Text("Clear task") }
                     }
                     error?.let {
                         Text(
