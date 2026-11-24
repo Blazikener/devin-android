@@ -30,6 +30,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -45,11 +54,28 @@ import com.blazikener.devin.ui.theme.color
 @Composable
 fun rememberReducedMotion(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
-        runCatching {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    fun read() = runCatching {
             Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         }.getOrDefault(false)
+    var reduced by remember(context) { mutableStateOf(read()) }
+    DisposableEffect(context, lifecycle) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { reduced = read() }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer,
+        )
+        val resume = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reduced = read()
+        }
+        lifecycle.addObserver(resume)
+        onDispose {
+            context.contentResolver.unregisterContentObserver(observer)
+            lifecycle.removeObserver(resume)
+        }
     }
+    return reduced
 }
 
 @Composable
