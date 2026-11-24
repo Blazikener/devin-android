@@ -83,8 +83,16 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     val settings = g.settings.value
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride)) }
-    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft()) }
+    var form by rememberSaveable(stateSaver = DraftSaver) {
+        mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride, g.createGate.attempts.value))
+    }
+    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) {
+        val saved = g.settings.newSessionDraft()
+        val matching = g.createGate.attempts.value.firstOrNull { it.matches(form.prompt) }
+        // Merely displaying a matching share is not an edit and must not overwrite
+        // an unrelated unfinished draft. Subsequent real edits still autosave normally.
+        mutableStateOf(if (saved.shouldPreserveOnRecovery(matching)) form else saved)
+    }
     var busy by remember { mutableStateOf(false) }
     var created by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -269,7 +277,15 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
             Button(onClick = ::create, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); error = null }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = {
+                if (form == lastSavedForm && g.settings.newSessionDraftVersion(form) == null) {
+                    val saved = g.settings.newSessionDraft()
+                    lastSavedForm = saved
+                    form = saved
+                } else form = defaults
+                failedUploads.clear()
+                error = null
+            }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
         }
     }
 }
