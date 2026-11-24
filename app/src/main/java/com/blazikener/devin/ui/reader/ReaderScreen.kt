@@ -26,9 +26,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -83,15 +81,22 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
     val problem = (ui.result.problem ?: ReaderProblem.Transient).let {
         if (it == ReaderProblem.Unsupported && ui.result.file?.let(::documentFormat) in setOf(DocumentFormat.Markdown, DocumentFormat.PlainText)) ReaderProblem.WebOnly else it
     }
-    val errorAnnouncement = if (!ui.loading && !ui.working && ui.result.document == null) {
-        readerErrorText(problem, title).let { (heading, body) -> "$heading. $body" }
-    } else null
-    LaunchedEffect(errorAnnouncement) {
-        if (errorAnnouncement != null) {
-            // A removed recovery button moves TalkBack focus and can swallow a simultaneous
-            // live-region update. Announce the settled outcome, not the disappearing action.
+    val savedCopyStatus = ui.result.document?.takeIf { ui.result.savedCopy || !ui.online }?.let { document ->
+        val saved = DateFormat.getMediumDateFormat(context).format(Date(document.savedAt)) + " " + DateFormat.getTimeFormat(context).format(Date(document.savedAt))
+        "${if (!ui.online) "Offline" else "Couldn’t refresh"} · Saved copy from $saved"
+    }
+    val announcement = when {
+        ui.working -> "Preparing file…"
+        ui.loading -> "Loading $title"
+        ui.result.document == null -> readerErrorText(problem, title).let { (heading, body) -> "$heading. $body" }
+        else -> listOfNotNull(savedCopyStatus, "Updated document".takeIf { ui.updated }).joinToString(". ").ifBlank { null }
+    }
+    LaunchedEffect(announcement, title) {
+        if (announcement != null) {
+            // Title focus and removed recovery buttons can interrupt live-region updates.
+            // One settled announcement path avoids duplicate or cut-off status speech.
             delay(600)
-            view.announceForAccessibility(errorAnnouncement)
+            view.announceForAccessibility(announcement)
         }
     }
     val focus = remember { FocusRequester() }
@@ -158,16 +163,14 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
             HorizontalDivider()
             if (ui.result.document != null) {
                 val document = ui.result.document!!
-                if (ui.result.savedCopy || !ui.online) {
-                    val saved = DateFormat.getMediumDateFormat(context).format(Date(document.savedAt)) + " " + DateFormat.getTimeFormat(context).format(Date(document.savedAt))
+                if (savedCopyStatus != null) {
                     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 20.dp, vertical = 8.dp)) {
-                        Text("${if (!ui.online) "Offline" else "Couldn’t refresh"} · Saved copy from $saved", style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        Text(savedCopyStatus, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = vm::retry, enabled = ui.online && !ui.loading) { Text(if (ui.online) "Retry sync" else "Retry sync when online") }
                     }
                 }
                 if (ui.updated) Text("Updated document", style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite })
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(if (plain || ui.blocks == null) "Plain text" else "Markdown", style = MaterialTheme.typography.labelMedium)
                     Text(if (document.file.source == "user") "Shared by you" else "Shared by Devin", style = MaterialTheme.typography.bodySmall)
@@ -195,7 +198,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
                 TextButton(onClick = { options = true }, modifier = Modifier.fillMaxWidth()) { Text("Document options") }
             } else if (ui.loading) {
                 Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Loading $title", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    Text("Loading $title", style = MaterialTheme.typography.bodyLarge)
                     listOf(0.8f, 1f, 1f, 0.65f).forEach { width -> Box(Modifier.fillMaxWidth(width).height(20.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.small)) }
                     TextButton(onClick = onBack) { Text("Cancel") }
                 }
@@ -263,6 +266,6 @@ private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, b
         if (problem == ReaderProblem.NoViewer) TextButton(onClick = onShare, enabled = online && !busy) { Text("Share file") }
         if (problem !in setOf(ReaderProblem.Offline, ReaderProblem.WebOnly, ReaderProblem.ExportTooLarge)) TextButton(onClick = onWeb) { Text(if (problem == ReaderProblem.Denied) "Check access on web" else "Open session on web") }
         TextButton(onClick = onBack) { Text("Back to ${origin.name}") }
-        if (busy) Text("Preparing file…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        if (busy) Text("Preparing file…")
     }
 }
