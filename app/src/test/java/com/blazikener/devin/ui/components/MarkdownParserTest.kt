@@ -137,6 +137,20 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun bracketsInsideInlineCodeDoNotEndLinkLabels() {
+        val rendered = MarkdownParser.inline(
+            "[`a[0]`](https://example.com/code)",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("a[0]", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("a[0]", rendered.text.substring(link.start, link.end))
+        assertEquals("https://example.com/code", (link.item as LinkAnnotation.Url).url)
+    }
+
+    @Test
     fun linksAndImagesIgnoreOptionalTitles() {
         val rendered = MarkdownParser.inline(
             """[Double](https://example.com/double "look \"here\"") ![Single](https://example.com/single.png 'caption') [Paren](https://example.com/paren (caption))""",

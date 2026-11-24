@@ -147,8 +147,9 @@ object MarkdownParser {
         }
     }.trim()
 
+    private val codeSpan = Regex("""`[^`]+`""")
     private val inline = Regex(
-        """\\[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]|(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|!?\[|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
+        """\\[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]|(${codeSpan.pattern})|(\*\*[^*]+\*\*)|(__[^_]+__)|!?\[|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
     )
 
     private data class Destination(val url: String, val nextIndex: Int)
@@ -172,8 +173,13 @@ object MarkdownParser {
         val label = StringBuilder()
         var i = start
         while (i < text.length) {
+            val code = if (text[i] == '`') codeSpan.matchAt(text, i) else null
             when {
                 text.isEscapeAt(i) -> label.append(text[++i])
+                code != null -> {
+                    label.append(text, i + 1, code.range.last)
+                    i = code.range.last
+                }
                 text[i] == '[' -> return null
                 text[i] == ']' -> {
                     if (text.getOrNull(i + 1) != '(' || (!image && label.isEmpty())) return null
