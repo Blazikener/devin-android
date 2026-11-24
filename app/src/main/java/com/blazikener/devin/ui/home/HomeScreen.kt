@@ -72,6 +72,8 @@ fun HomeScreen(
     val busy = launch.busy || globalBusy
     val recovery = if (busy) null else launch.confirmation ?: attempts.firstOrNull { !it.dismissed }
     val account by g.auth.account.collectAsStateWithLifecycle()
+    val name = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
+    val welcome = greeting(java.time.LocalTime.now().hour, name) + ". What’s next?"
     val settings by g.settings.settings.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val compact = LocalConfiguration.current.screenHeightDp < 480
@@ -150,6 +152,16 @@ fun HomeScreen(
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp)) {
+                    if (recovery != null && !imeVisible) {
+                        // Prioritize recovery over the large welcome hero; keep its greeting
+                        // intact above the warning even when the composer has multiple lines.
+                        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            JadeWorkTiles(Modifier.size(32.dp))
+                            Text(welcome, style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        }
+                    }
                     recovery?.let { attempt ->
                         HomeCreateRecovery(
                             submitted = attempt.submitted,
@@ -176,15 +188,14 @@ fun HomeScreen(
                     }
                     if (busy) {
                         SessionLaunchCue(Modifier.fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp))
-                    } else if (!imeVisible) {
+                    } else if (!imeVisible && recovery == null) {
                         Spacer(Modifier.height(if (compact) 8.dp else 20.dp))
                         JadeWorkTiles(Modifier.size(72.dp))
                         Spacer(Modifier.height(20.dp))
                         Text("A little less busy.\nA little more done.", style = DevinTextStyles.welcomeSerif,
                             modifier = Modifier.semantics { heading() })
                         Spacer(Modifier.height(10.dp))
-                        val name = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
-                        Text(greeting(java.time.LocalTime.now().hour, name) + ". What’s next?",
+                        Text(welcome,
                             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(24.dp))
                     }
