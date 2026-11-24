@@ -48,7 +48,9 @@ internal class CreateSessionGate(
     suspend fun dismiss(attempt: CreateAttempt) = change(attempt) { it.copy(dismissed = true) }
 
     /** Explicit Clear discards only the attempt represented by the cleared form. */
-    suspend fun clear(attempt: CreateAttempt) = change(attempt) { null }
+    suspend fun clear(attempt: CreateAttempt) = mutex.withLock {
+        if (attempt in state.value) save(state.value.filterNot { it == attempt }, attempt.submitted?.draftVersion)
+    }
 
     suspend fun acknowledgeOpened(sessionId: String) = mutex.withLock {
         val next = state.value.filterNot { it.sessionId == sessionId }

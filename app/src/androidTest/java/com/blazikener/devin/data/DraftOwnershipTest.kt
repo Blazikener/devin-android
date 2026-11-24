@@ -107,7 +107,8 @@ class DraftOwnershipTest {
         assertEquals(CreateResult.NeedsConfirmation(dismissed), gate.submit(original.toCreateRequest(null)))
         gate.clear(dismissed)
         assertTrue(SettingsStore(context).createAttempts.read().isEmpty())
-        assertEquals(original, store.newSessionDraft())
+        assertFalse(store.hasNewSessionDraft())
+        assertTrue(store.wasNewSessionDraftConsumed(original))
     }
 
     @Test fun unrelatedPendingTasksNeverReplaceEachOtherAndClearIsExact() = runBlocking {

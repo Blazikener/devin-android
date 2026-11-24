@@ -194,7 +194,19 @@ class CreateSessionViewModelTest {
         runCurrent()
         assertEquals(1, attempts.records.size)
         assertTrue(attempts.records.single().matches("Different task"))
+        assertNull(attempts.editable)
+    }
+
+    @Test fun clearingAnUnrelatedFormNeverDropsTheDisplayedWarningProtection() = runTest {
+        val g = gate { throw ApiException(500, "Uncertain") }
+        val vm = model(g)
+        vm.submit(draft, null)
+        runCurrent()
+        vm.resolveUncertain(draft.copy(prompt = "Different task", draftVersion = "b"))
+        runCurrent()
+        assertTrue(attempts.records.single().matches(draft.prompt))
         assertEquals(draft, attempts.editable)
+        assertTrue(g.submit(draft.toCreateRequest(null)) is CreateResult.NeedsConfirmation)
     }
 
     @Test fun rejectedRetryPreservesTheEarlierUncertainAttempt() = runTest {
