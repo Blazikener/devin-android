@@ -41,6 +41,9 @@ sealed interface Launch {
     data class NewSession(val prompt: String?) : Launch
 }
 
+internal fun initialLaunch(launchPending: Boolean?, decode: () -> Launch?): Launch? =
+    if (launchPending == false) null else decode()
+
 class MainActivity : ComponentActivity() {
     private val pending = mutableStateOf<Launch?>(null)
     private val notifPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -50,7 +53,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // On recreation (rotation, process death) the nav back stack already holds a handled launch;
         // one still waiting for sign-in is replayed.
-        if (savedInstanceState?.getBoolean(LAUNCH_PENDING) != false) pending.value = parse(intent)
+        pending.value = initialLaunch(savedInstanceState?.getBoolean(LAUNCH_PENDING)) { parse(intent) }
         setContent {
             val g = graph
             val settings by g.settings.settings.collectAsStateWithLifecycle()

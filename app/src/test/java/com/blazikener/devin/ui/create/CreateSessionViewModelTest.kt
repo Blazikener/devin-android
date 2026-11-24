@@ -4,12 +4,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.blazikener.devin.Launch
 import com.blazikener.devin.data.ApiException
 import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.Session
+import com.blazikener.devin.initialLaunch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -224,6 +226,19 @@ class CreateSessionViewModelTest {
         assertNull(vm.ui.value.sessionId)
         assertFalse(vm.ui.value.uncertain)
         assertEquals(incoming, attempts.draft?.withCreateArguments(incoming, null)?.prompt)
+    }
+
+    @Test
+    fun restoredCreateRouteWithOriginalPromptKeepsCompletedSession() = runTest {
+        attempts.write(CreateAttempt.Created("original-session"), NewSessionDraft())
+        val originalLaunch = Launch.NewSession("Original shared text")
+        val restoredLaunch = initialLaunch(launchPending = false) { originalLaunch }
+        assertNull(restoredLaunch)
+        assertEquals(originalLaunch, initialLaunch(launchPending = true) { originalLaunch })
+        assertEquals(originalLaunch, initialLaunch(launchPending = null) { originalLaunch })
+
+        val restored = model { error("Unexpected new request") }
+        assertEquals("original-session", restored.ui.value.sessionId)
     }
 
     @Test
