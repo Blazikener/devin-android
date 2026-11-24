@@ -103,7 +103,7 @@ class SettingsStore(context: Context) {
     }
 
     fun hasNewSessionDraft(): Boolean =
-        drafts.contains(NEW_SESSION_KEY) || drafts.contains(LEGACY_NEW_SESSION_KEY)
+        drafts.contains(NEW_SESSION_KEY) || !drafts.getString(LEGACY_NEW_SESSION_KEY, null).isNullOrBlank()
 
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
         remove(LEGACY_NEW_SESSION_KEY)
