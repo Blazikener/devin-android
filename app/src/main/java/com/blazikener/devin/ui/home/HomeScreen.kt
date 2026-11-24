@@ -183,47 +183,36 @@ fun HomeScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    if (compact && imeVisible) {
-                        DevinOutlinedSurface(Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                DevinIconButton("Attach context and session options", Icons.Outlined.Add, ::openCreate, enabled = !launch.busy)
-                                BasicTextField(prompt, { prompt = it }, enabled = !launch.busy, singleLine = true,
-                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "Task for Devin" },
-                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(onSend = { send() }),
-                                    decorationBox = { inner -> Box(contentAlignment = Alignment.CenterStart) {
-                                        if (prompt.isEmpty()) Text("Your task", style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        inner()
-                                    } },
-                                )
-                                FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
-                                    Icon(Icons.Filled.ArrowUpward, "Start session")
-                                }
-                            }
-                        }
-                    } else {
+                    val compactComposer = compact && imeVisible
                     DevinOutlinedSurface(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
+                        Column(Modifier.padding(if (compactComposer) 4.dp else 12.dp)) {
+                            // Keep the same field and focus node when the IME changes the layout.
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            if (compactComposer) DevinIconButton("Attach context and session options", Icons.Outlined.Add,
+                                ::openCreate, enabled = !launch.busy)
                             BasicTextField(
                                 prompt, { prompt = it }, enabled = !launch.busy,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(4.dp)
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(4.dp)
                                     .semantics { contentDescription = "Task for Devin" },
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions(onSend = { send() }),
+                                singleLine = compactComposer,
                                 maxLines = if (compact) 2 else 4,
                                 decorationBox = { inner ->
-                                    Box {
-                                        if (prompt.isEmpty()) Text("What would you like to build?",
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (prompt.isEmpty()) Text(if (compactComposer) "Your task" else "What would you like to build?",
                                             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         inner()
                                     }
                                 },
                             )
+                            if (compactComposer) FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Filled.ArrowUpward, "Start session")
+                            }
+                            }
+                            if (!compactComposer) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 DevinIconButton("Attach context and session options", Icons.Outlined.Add,
                                 ::openCreate, enabled = !launch.busy)
@@ -238,8 +227,8 @@ fun HomeScreen(
                                     Icon(Icons.Filled.ArrowUpward, "Start session")
                                 }
                             }
+                            }
                         }
-                    }
                     }
                 }
             }
