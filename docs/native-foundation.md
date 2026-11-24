@@ -6,7 +6,7 @@ Approved direction: Designer round 3. This layer owns theme, shared primitives, 
 
 - `DevinLightColors` / `DevinDarkColors`: every supported Material 3 role supplied explicitly. `DevinFixedColors` supplies the 12 fixed roles unsupported by Material 3 1.3; they are invariant in light/dark.
 - `DevinTypography`: all 15 UI styles use platform Roboto/SansSerif. Only `DevinTextStyles.welcomeSerif` / `documentHero` use Serif. `codeBlock` uses Monospace. All sizing is sp.
-- `DevinDimens`: 48dp minimum touch target, 20dp content inset, 24dp section gap, 12dp item gap, opaque 1dp boundary.
+- `DevinDimens`: `touchTarget` (48dp), `screenPadding` (20dp), `sectionGap` (24dp), `itemGap` (12dp), `outlineWidth` (opaque 1dp boundary).
 - `DevinIconButton`, `DevinTopBar`, `DevinOutlinedSurface`, `DevinSearchField`, `KnownCountBadge`: accessible native primitives. Counts that are unknown or zero produce no Badge node.
 - `DevinRootShell`: used by Home and Sessions, with actual visible destination selected. Needs you is a Sessions filter shortcut. Close drawer before navigation; system Back dismisses it first.
 - Keep the exact `UnofficialDisclaimer`. No product artwork or Bots destination.
@@ -38,6 +38,8 @@ Use `ui/navigation/Routes.kt` builders instead of interpolating raw arguments. S
 ## Back and restoration
 
 Root changes use Navigation save/restore state so Home/Sessions do not accumulate. Details, Settings and Create push onto the current origin; successful Create removes only its own entry. Framework NavHost owns system/predictive Back for routes. Shell Back only intercepts an open drawer. Keep Up and system Back equivalent inside this single activity. Screen owners must save scroll, filters and drafts in saveable state / persisted storage, not route URLs.
+
+Each Create entry retains its last-persisted draft in saveable state. Save fresh incoming share arguments and actual edits, but do not autosave an unchanged form merely because it resumed: a newer Create entry may have saved a newer draft. Keep this guard when rebuilding the form.
 
 ## Validation
 
