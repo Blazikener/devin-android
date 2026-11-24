@@ -34,7 +34,7 @@ import com.blazikener.devin.ui.session.SessionScreen
 import com.blazikener.devin.ui.sessions.SessionsScreen
 import com.blazikener.devin.ui.settings.SettingsScreen
 import com.blazikener.devin.ui.theme.DevinTheme
-import com.blazikener.devin.ui.navigation.Routes
+import com.blazikener.devin.ui.navigation.*
 
 sealed interface Launch {
     data class OpenSession(val id: String) : Launch
@@ -67,17 +67,10 @@ class MainActivity : ComponentActivity() {
                     if (nav.currentDestination?.route == Routes.Login) {
                         nav.navigate(Routes.Home) { popUpTo(Routes.Login) { inclusive = true } }
                     }
-                    val alreadyOpen = l is Launch.OpenSession &&
-                        nav.currentDestination?.route == Routes.Session &&
-                        nav.currentBackStackEntry?.arguments?.getString("id") == l.id
-                    if (alreadyOpen) return@LaunchedEffect
-                    val route = when (l) {
-                        is Launch.OpenSession -> Routes.session(l.id)
-                        is Launch.NewSession -> Routes.create(l.prompt.orEmpty())
+                    when (l) {
+                        is Launch.OpenSession -> nav.openSessionFromLaunch(l.id)
+                        is Launch.NewSession -> nav.openCreateFromLaunch(l.prompt)
                     }
-                    // Destination identity alone is not session identity: singleTop would replace
-                    // Chat A with Chat B, or reuse an existing Create form and ignore shared text.
-                    nav.navigate(route)
                 }
                 NavHost(
                     nav, startDestination = start,
@@ -98,7 +91,7 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             onOpen = { nav.navigate(Routes.session(it)) },
                             onSessions = { filter, search ->
-                                nav.navigateRoot(Routes.sessions(filter, search))
+                                nav.showSessionsRoot(filter, search)
                             },
                             onNewForm = { prompt, mode -> nav.navigate(Routes.create(prompt, mode)) },
                             onSettings = { nav.navigate("settings") },
@@ -111,6 +104,9 @@ class MainActivity : ComponentActivity() {
                             navArgument("search") { type = NavType.BoolType; defaultValue = false },
                         ),
                     ) { e ->
+                        val encodedRequest by e.savedStateHandle.getStateFlow<String?>(
+                            SessionNavigationState.SessionsRequest, null,
+                        ).collectAsStateWithLifecycle()
                         val initialFilter = e.arguments?.getString("filter").orEmpty()
                             .takeIf(String::isNotEmpty)?.let { value -> SessionFilter.entries.firstOrNull { it.name == value } }
                         val initialSearch = e.arguments?.getBoolean("search") ?: false
@@ -121,7 +117,9 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.back() },
                             initialFilter = initialFilter,
                             initialSearch = initialSearch,
-                            onHome = { nav.navigateRoot(Routes.Home) },
+                            onHome = { nav.showHomeRoot() },
+                            navigationRequest = SessionsRequest.decode(encodedRequest),
+                            onNavigationRequestHandled = { e.savedStateHandle[SessionNavigationState.SessionsRequest] = null },
                         )
                     }
                     composable(Routes.Session, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
@@ -139,9 +137,7 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
-                            // popUpTo only clears active entries, not saveState root snapshots/VMs.
-                            nav.clearBackStack(Routes.Sessions)
-                            nav.navigate("login") { popUpTo(0) { inclusive = true } }
+                            nav.clearProtectedNavigation()
                         })
                     }
                 }
@@ -158,15 +154,6 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(LAUNCH_PENDING, pending.value != null)
-    }
-
-    private fun NavHostController.navigateRoot(route: String) {
-        navigate(route) {
-            popUpTo(Routes.Home) { saveState = true }
-            launchSingleTop = true
-            // An explicit shortcut must apply its filter/search instead of restoring stale args.
-            restoreState = route == Routes.Home || route == Routes.sessions()
-        }
     }
 
     private fun NavHostController.back() { if (!popBackStack()) navigate("home") }

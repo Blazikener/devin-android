@@ -30,8 +30,25 @@ enum class SessionTab { Chat, Files }
 
 /** Keys shared by Chat/Files and Reader; keep content/URLs out of the route and saved state. */
 object SessionNavigationState {
+    const val SessionsRequest = "sessions_navigation_request"
     const val Tab = "session_tab"
     const val FileId = "reader_file_id"
     const val FileVersion = "reader_file_version"
     const val ReadingAnchor = "reader_anchor"
+}
+
+/** A one-shot override on a restored list; other query/owner/scroll state stays intact. */
+data class SessionsRequest(val filter: SessionFilter? = null, val search: Boolean = false) {
+    fun encode() = "${filter?.name.orEmpty()}|$search"
+
+    companion object {
+        fun decode(value: String?): SessionsRequest? {
+            val parts = value?.split('|', limit = 2) ?: return null
+            if (parts.size != 2) return null
+            val filter = parts[0].takeIf(String::isNotEmpty)?.let { name ->
+                SessionFilter.entries.firstOrNull { it.name == name } ?: return null
+            }
+            return SessionsRequest(filter, parts[1].toBooleanStrictOrNull() ?: return null)
+        }
+    }
 }
