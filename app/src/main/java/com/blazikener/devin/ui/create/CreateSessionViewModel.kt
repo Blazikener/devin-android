@@ -51,8 +51,13 @@ internal class CreateSessionViewModel(
     }
 
     fun resolveUncertain(form: NewSessionDraft) {
-        val attempt = _ui.value.confirmation?.takeIf { it.matches(form.prompt) }
-            ?: gate.attempts.value.firstOrNull { it.matches(form.prompt) } ?: return
+        val attempt = _ui.value.confirmation?.takeIf { it.submitted?.draftVersion == form.versionKey }
+            ?: gate.attempts.value.firstOrNull { it.submitted?.draftVersion == form.versionKey }
+        if (attempt == null) {
+            // Clear this editor without dismissing or consuming another entry's attempt.
+            _ui.value = _ui.value.copy(confirmation = null, error = null)
+            return
+        }
         viewModelScope.launch {
             gate.clear(attempt)
             _ui.value = _ui.value.copy(confirmation = gate.attempts.value.firstOrNull {

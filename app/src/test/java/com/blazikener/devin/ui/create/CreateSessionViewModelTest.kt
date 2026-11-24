@@ -212,6 +212,22 @@ class CreateSessionViewModelTest {
         assertTrue(g.submit(draft.toCreateRequest(null)) is CreateResult.NeedsConfirmation)
     }
 
+    @Test fun olderFormWithSamePromptCannotClearNewerSnapshotOrItsSavedSetup() = runTest {
+        val newer = draft.copy(acu = "50", mode = "ultra", draftVersion = "newer")
+        val g = gate { throw ApiException(500, "Uncertain") }
+        attempts.editable = newer
+        g.submit(newer.toCreateRequest(null), newer, newer.versionKey)
+        val before = attempts.records.single()
+        val olderForm = model(g)
+        assertTrue(olderForm.ui.value.needsRetryConfirmation(draft))
+        olderForm.resolveUncertain(draft)
+        runCurrent()
+        assertEquals(listOf(before), attempts.records)
+        assertEquals(newer, attempts.editable)
+        assertFalse(newer.versionKey in attempts.consumed)
+        assertTrue(g.submit(newer.toCreateRequest(null)) is CreateResult.NeedsConfirmation)
+    }
+
     @Test fun rejectedRetryPreservesTheEarlierUncertainAttempt() = runTest {
         var calls = 0
         val vm = model(gate { throw ApiException(if (++calls == 1) 500 else 422, "Failure") })
