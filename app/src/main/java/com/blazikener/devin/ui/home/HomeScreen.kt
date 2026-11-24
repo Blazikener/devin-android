@@ -1,87 +1,27 @@
 package com.blazikener.devin.ui.home
 
 import android.content.Context
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.isImeVisible
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Badge
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,58 +30,48 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.CreateSessionRequest
-import com.blazikener.devin.data.Session
+import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
-import com.blazikener.devin.ui.components.DevinOrb
-import com.blazikener.devin.ui.components.DevinRootShell
+import com.blazikener.devin.ui.components.*
+import com.blazikener.devin.ui.create.createModeOverride
 import com.blazikener.devin.ui.navigation.RootDestination
-import com.blazikener.devin.ui.components.StatusDot
-import com.blazikener.devin.ui.components.rememberReducedMotion
 import com.blazikener.devin.ui.sessions.SessionsViewModel
-import kotlinx.coroutines.awaitCancellation
+import com.blazikener.devin.ui.theme.DevinTextStyles
+import com.blazikener.devin.ui.theme.attentionContainer
+import com.blazikener.devin.ui.theme.onAttentionContainer
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onOpen: (String) -> Unit,
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
-    onNewForm: (prompt: String) -> Unit,
+    onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val g = context.graph
     val vm: SessionsViewModel = viewModel {
-        val app = context.applicationContext
-        SessionsViewModel(g) { SessionWatcher.markSeen(app, it) }
+        SessionsViewModel(g) { SessionWatcher.markSeen(context.applicationContext, it) }
     }
+    val launcher: HomeLaunchViewModel = viewModel { HomeLaunchViewModel(g.api::createSession) }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val launch by launcher.state.collectAsStateWithLifecycle()
     val account by g.auth.account.collectAsStateWithLifecycle()
     val settings by g.settings.settings.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val compactHeight = LocalConfiguration.current.screenHeightDp < 480
+    val compact = LocalConfiguration.current.screenHeightDp < 480
     val imeVisible = WindowInsets.isImeVisible
-    val compactIme = compactHeight && imeVisible
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var prompt by rememberSaveable { mutableStateOf("") }
     var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
     var modeChosen by rememberSaveable { mutableStateOf(false) }
     val mode = if (modeChosen) chosenMode else settings.defaultMode
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var showModePicker by remember { mutableStateOf(false) }
-    var greetingVisible by remember { mutableStateOf(false) }
-    var statusVisible by remember { mutableStateOf(false) }
-
-    fun updatePrompt(value: String) {
-        prompt = value
-        error = null
-    }
+    var showModePicker by rememberSaveable { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    LaunchedEffect(launch.error) { if (launch.error != null) scroll.scrollTo(0) }
 
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -153,38 +83,23 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(Unit) {
-        greetingVisible = true
-        delay(520)
-        statusVisible = true
-    }
-
-    fun send() {
-        val trimmed = prompt.trim()
-        if (trimmed.isEmpty() || busy) return
-        busy = true
-        error = null
-        scope.launch {
-            runCatching {
-                g.api.createSession(
-                    CreateSessionRequest(
-                        prompt = trimmed,
-                        maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
-                        createAsUserId = settings.createAsUserId,
-                        devinMode = mode,
-                    ),
-                )
-            }.onSuccess { session ->
-                prompt = ""
-                modeChosen = false
-                busy = false
-                onOpen(session.id)
-            }.onFailure { failure ->
-                error = failure.message ?: "Couldn't start the session"
-                busy = false
-            }
+    LaunchedEffect(launch.createdId) {
+        launch.createdId?.let { id ->
+            prompt = ""
+            modeChosen = false
+            launcher.consumeCreated()
+            onOpen(id) // Never wait for the decorative turn to finish.
         }
     }
+    fun send() {
+        launcher.start(CreateSessionRequest(
+            prompt = prompt.trim(),
+            maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
+            createAsUserId = settings.createAsUserId,
+            devinMode = mode,
+        ))
+    }
+    fun openCreate() { if (!launch.busy) onNewForm(prompt, createModeOverride(modeChosen, chosenMode)) }
 
     DevinRootShell(
         selected = RootDestination.Home, accountName = account?.name,
@@ -192,357 +107,174 @@ fun HomeScreen(
         onHome = {}, onSessions = { onSessions(null, false) },
         onNeedsYou = { onSessions(SessionFilter.NeedsYou, false) },
         onSearch = { onSessions(null, true) }, onSettings = onSettings,
-        onOpen = onOpen, onNew = { onNewForm("") },
+        onOpen = onOpen, onNew = ::openCreate,
     ) { openMenu ->
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
-            contentColor = MaterialTheme.colorScheme.onBackground,
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                if (!compactIme) {
-                    Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = openMenu) {
-                            Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
-                        }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onSettings) {
-                            Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+        Scaffold(
+            topBar = {
+                if (!(compact && imeVisible)) DevinTopBar(
+                    title = "Devin",
+                    navigationIcon = { DevinIconButton("Open menu", Icons.Outlined.Menu, openMenu) },
+                    actions = { DevinIconButton("New session", Icons.Outlined.Add, ::openCreate, enabled = !launch.busy) },
+                )
+            },
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp)) {
+                    launch.error?.let { error ->
+                        Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+                            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = ::send, enabled = prompt.isNotBlank()) { Text("Retry") }
                         }
                     }
-                }
-                if (compactIme) {
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    Box(
-                        Modifier.weight(1f).fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            val firstName = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
-                            val greeting = greeting(java.time.LocalTime.now().hour, firstName)
-                            val entranceOffset = with(LocalDensity.current) { 12.dp.roundToPx() }
-                            AnimatedVisibility(
-                                visible = greetingVisible,
-                                enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { entranceOffset },
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    HomeOrb(busy = busy)
-                                    Spacer(Modifier.height(22.dp))
-                                    Text(
-                                        greeting,
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    )
-                                }
+                    if (launch.busy) {
+                        SessionLaunchCue(Modifier.fillMaxWidth().padding(vertical = 24.dp))
+                    } else if (!imeVisible) {
+                        Spacer(Modifier.height(if (compact) 8.dp else 20.dp))
+                        JadeWorkTiles(Modifier.size(72.dp))
+                        Spacer(Modifier.height(20.dp))
+                        Text("A little less busy.\nA little more done.", style = DevinTextStyles.welcomeSerif,
+                            modifier = Modifier.semantics { heading() })
+                        Spacer(Modifier.height(10.dp))
+                        val name = account?.takeIf { it.userId != null && it.name != "Devin user" }?.name
+                        Text(greeting(java.time.LocalTime.now().hour, name) + ". What’s next?",
+                            style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(24.dp))
+                    }
+                    if (!launch.busy) {
+                        val feed = ui.feed
+                        when {
+                            feed.loading -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 16.dp))
+                            feed.error != null -> {
+                                Text(if (feed.offline) "Showing saved sessions" else "Couldn't load sessions",
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                TextButton(onClick = vm::pullRefresh) { Text("Retry") }
                             }
-                            Spacer(Modifier.height(24.dp))
-                            AnimatedVisibility(visible = statusVisible, enter = fadeIn(tween(220))) {
-                                val needsYou = ui.needsYouCount
-                                val working = ui.workingCount
-                                Row(
-                                    Modifier.clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                        .clickable {
-                                            onSessions(if (needsYou > 0) SessionFilter.NeedsYou else null, false)
-                                        }
-                                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        if (needsYou == 0 && working == 0) "All caught up"
-                                        else "$needsYou need you · $working working",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
+                            ui.needsYouCount > 0 -> HomeAttention(ui.needsYouCount) { onSessions(SessionFilter.NeedsYou, false) }
+                            else -> Text(if (ui.workingCount > 0) ui.workingCount.toString() + " sessions working" else "All caught up",
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }
-                }
-                Column(
-                    Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    error?.let {
-                        Text(
-                            it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
-                        )
-                    }
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    ) {
-                        Column(
-                            Modifier.padding(
-                                horizontal = if (compactIme) 8.dp else 16.dp,
-                                vertical = if (compactIme) 6.dp else 12.dp,
-                            ),
-                        ) {
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pick up where you left off", style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.weight(1f).semantics { heading() })
+                            TextButton(onClick = { onSessions(null, false) }) { Text("View all") }
+                        }
+                        ui.all.sortedByDescending { it.updatedAt }.take(2).forEach { session ->
                             Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.Bottom,
+                                Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open session") { onOpen(session.id) }
+                                    .padding(vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
-                                HomePromptField(
-                                    prompt = prompt,
-                                    onPromptChange = ::updatePrompt,
-                                    onSend = ::send,
-                                    modifier = Modifier.weight(1f).padding(
-                                        horizontal = if (compactIme) 8.dp else 0.dp,
-                                        vertical = 6.dp,
-                                    ),
-                                    maxLines = if (compactIme) 2 else if (compactHeight) 3 else 6,
+                                Icon(Icons.Outlined.History, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(session.displayTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(session.state.label + " · " + relativeTime(session.updatedAt),
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        if (!feed.loading && feed.error == null && ui.all.isEmpty()) {
+                            Text("Your recent sessions will appear here.", style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    if (compact && imeVisible) {
+                        DevinOutlinedSurface(Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                DevinIconButton("Attach context and session options", Icons.Outlined.Add, ::openCreate, enabled = !launch.busy)
+                                BasicTextField(prompt, { prompt = it }, enabled = !launch.busy, singleLine = true,
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "Task for Devin" },
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                    keyboardActions = KeyboardActions(onSend = { send() }),
+                                    decorationBox = { inner -> Box(contentAlignment = Alignment.CenterStart) {
+                                        if (prompt.isEmpty()) Text("Your task", style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        inner()
+                                    } },
                                 )
-                                if (compactIme) {
-                                    HomeSendButton(
-                                        enabled = prompt.isNotBlank() && !busy,
-                                        busy = busy,
-                                        onSend = ::send,
-                                    )
+                                FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
+                                    Icon(Icons.Filled.ArrowUpward, "Start session")
                                 }
                             }
-                            if (!compactIme) {
-                                Spacer(Modifier.height(10.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
-                                    Spacer(Modifier.width(8.dp))
-                                    val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
-                                    Row(
-                                        Modifier.clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                            .clickable(role = Role.Button, onClickLabel = "Change mode") { showModePicker = true }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(modeLabel, style = MaterialTheme.typography.labelLarge)
+                        }
+                    } else {
+                    DevinOutlinedSurface(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            BasicTextField(
+                                prompt, { prompt = it }, enabled = !launch.busy,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(4.dp)
+                                    .semantics { contentDescription = "Task for Devin" },
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { send() }),
+                                maxLines = if (compact) 2 else 4,
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (prompt.isEmpty()) Text("What would you like to build?",
+                                            style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        inner()
                                     }
-                                    Spacer(Modifier.weight(1f))
-                                    HomeSendButton(
-                                        enabled = prompt.isNotBlank() && !busy,
-                                        busy = busy,
-                                        onSend = ::send,
-                                    )
+                                },
+                            )
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                DevinIconButton("Attach context and session options", Icons.Outlined.Add,
+                                ::openCreate, enabled = !launch.busy)
+                                val label = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
+                                TextButton(onClick = { showModePicker = true }, enabled = !launch.busy,
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Session mode: " + label }) {
+                                    Text(label)
+                                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+                                }
+                                Spacer(Modifier.weight(1f))
+                                FilledIconButton(onClick = ::send, enabled = prompt.isNotBlank() && !launch.busy, modifier = Modifier.size(48.dp)) {
+                                    Icon(Icons.Filled.ArrowUpward, "Start session")
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-
-    if (showModePicker) {
-        ModalBottomSheet(onDismissRequest = { showModePicker = false }) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                Text("Select mode", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(12.dp))
-                DEVIN_MODES.forEach { (value, label) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            chosenMode = value
-                            modeChosen = true
-                            showModePicker = false
-                        }.padding(vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
-                        Spacer(Modifier.weight(1f))
-                        if (mode == value) Icon(Icons.Outlined.Check, contentDescription = "Selected")
                     }
                 }
-                Spacer(Modifier.height(24.dp))
             }
         }
     }
-}
-
-@Composable
-private fun HomePromptField(
-    prompt: String,
-    onPromptChange: (String) -> Unit,
-    onSend: () -> Unit,
-    modifier: Modifier,
-    maxLines: Int,
-) {
-    BasicTextField(
-        value = prompt,
-        onValueChange = onPromptChange,
-        modifier = modifier,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-        keyboardActions = KeyboardActions(onSend = { onSend() }),
-        minLines = 1,
-        maxLines = maxLines,
-        decorationBox = { inner ->
-            Box {
-                if (prompt.isEmpty()) {
-                    Text(
-                        "What should Devin build?",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    if (showModePicker) ModalBottomSheet(onDismissRequest = { showModePicker = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            Text("Session mode", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            DEVIN_MODES.forEach { (value, label) ->
+                TextButton(onClick = { chosenMode = value; modeChosen = true; showModePicker = false },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { selected = mode == value }) {
+                    Text(label, modifier = Modifier.weight(1f))
+                    if (mode == value) Icon(Icons.Outlined.Check, "Selected")
                 }
-                inner()
             }
-        },
-    )
-}
-
-@Composable
-private fun HomeMoreOptionsButton(
-    prompt: String,
-    onPromptChange: (String) -> Unit,
-    onNewForm: (String) -> Unit,
-) {
-    IconButton(
-        onClick = {
-            val text = prompt
-            onPromptChange("")
-            onNewForm(text)
-        },
-        modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceContainerLow, CircleShape),
-    ) {
-        Icon(Icons.Outlined.Add, contentDescription = "More options")
-    }
-}
-
-@Composable
-private fun HomeSendButton(
-    enabled: Boolean,
-    busy: Boolean,
-    onSend: () -> Unit,
-) {
-    val enabledScale by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.85f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
-        label = "send enabled scale",
-    )
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 650f),
-        label = "send press scale",
-    )
-    IconButton(
-        onClick = onSend,
-        enabled = enabled,
-        interactionSource = interaction,
-        modifier = Modifier.size(42.dp).graphicsLayer {
-            scaleX = enabledScale * pressScale
-            scaleY = enabledScale * pressScale
-        }.background(
-            if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
-            CircleShape,
-        ),
-    ) {
-        AnimatedContent(targetState = busy, label = "send busy") { sending ->
-            if (sending) {
-                androidx.compose.material3.CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Icon(
-                    Icons.Filled.ArrowUpward,
-                    contentDescription = "Send",
-                    tint = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeOrb(busy: Boolean) {
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val manager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
-    val accelerometer = remember(manager) { manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
-    val reducedMotion = rememberReducedMotion()
-    var rotationX by remember { mutableFloatStateOf(0f) }
-    var rotationY by remember { mutableFloatStateOf(0f) }
-    val breath = if (reducedMotion) {
-        1f
-    } else {
-        val transition = rememberInfiniteTransition(label = "home orb breathing")
-        val value by transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.03f,
-            animationSpec = infiniteRepeatable(
-                tween(durationMillis = 3000, easing = FastOutSlowInEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-            ),
-            label = "home orb breath",
-        )
-        value
-    }
-    val busyScale by animateFloatAsState(
-        targetValue = if (busy) 1.08f else 1f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 280f),
-        label = "home orb busy scale",
-    )
-
-    LaunchedEffect(manager, accelerometer, lifecycle, reducedMotion) {
-        if (accelerometer == null || reducedMotion) return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val baseline = FloatArray(2)
-            val filtered = FloatArray(2)
-            var initialized = false
-            val listener = object : SensorEventListener {
-                override fun onSensorChanged(event: SensorEvent) {
-                    if (!initialized) {
-                        baseline[0] = event.values[0]
-                        baseline[1] = event.values[1]
-                        filtered[0] = event.values[0]
-                        filtered[1] = event.values[1]
-                        initialized = true
-                        return
-                    }
-                    val smoothing = 0.16f
-                    filtered[0] += smoothing * (event.values[0] - filtered[0])
-                    filtered[1] += smoothing * (event.values[1] - filtered[1])
-                    rotationX = ((baseline[1] - filtered[1]) * 1.8f).coerceIn(-10f, 10f)
-                    rotationY = ((filtered[0] - baseline[0]) * 1.8f).coerceIn(-10f, 10f)
-                }
-
-                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+private fun HomeAttention(count: Int, onClick: () -> Unit) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium, color = attentionContainer, contentColor = onAttentionContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (count == 1) "1 session needs you" else "$count sessions need you", style = MaterialTheme.typography.titleSmall)
+                Text("A quick reply keeps things moving.", style = MaterialTheme.typography.bodySmall)
             }
-            manager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
-            try {
-                awaitCancellation()
-            } finally {
-                manager.unregisterListener(listener)
-                rotationX = 0f
-                rotationY = 0f
-            }
+            Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
         }
     }
-
-    DevinOrb(
-        modifier = Modifier.size(72.dp).graphicsLayer {
-            this.rotationX = if (reducedMotion) 0f else rotationX
-            this.rotationY = if (reducedMotion) 0f else rotationY
-            val scale = if (busy) busyScale else breath
-            scaleX = scale
-            scaleY = scale
-            cameraDistance = 12f * density
-        },
-        spin = busy && !reducedMotion,
-    )
 }
 
 internal fun greeting(hour: Int, name: String?): String {

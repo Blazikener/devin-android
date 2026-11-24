@@ -1,6 +1,7 @@
 package com.blazikener.devin.ui.sessions
 
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.SavedStateHandle
 import com.blazikener.devin.data.Page
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
@@ -41,6 +42,7 @@ class SessionsViewModelTest {
 
     private fun model(
         perform: suspend (String, SessionAction) -> Session = { _, _ -> error("Unexpected action") },
+        savedState: SavedStateHandle = SavedStateHandle(),
         fetch: suspend (Int, String?, Boolean, List<String>?) -> Page<Session>,
     ) = SessionsViewModel(
         userId = "me",
@@ -50,7 +52,31 @@ class SessionsViewModelTest {
         pinned = MutableStateFlow(emptySet()),
         changePin = {},
         perform = perform,
+        savedState = savedState,
     ).also { models.add(it) }
+
+    @Test
+    fun recreatedModelKeepsQueryOwnerAndNeedsYouFilter() = runTest {
+        val saved = SavedStateHandle()
+        val vm = model(savedState = saved) { _, _, _, _ -> Page(listOf(mine, other)) }
+        runCurrent()
+        vm.setQuery("retry")
+        vm.setFilter(SessionFilter.NeedsYou)
+        vm.toggleMine()
+        runCurrent()
+        val restored = model(savedState = SavedStateHandle(mapOf(
+            "query" to saved.get<String>("query"),
+            "filter" to saved.get<String>("filter"),
+            "mine" to saved.get<Boolean>("mine"),
+        ))) { _, _, _, users ->
+            assertEquals(null, users)
+            Page(emptyList())
+        }
+        runCurrent()
+        assertEquals("retry", restored.ui.value.query)
+        assertEquals(SessionFilter.NeedsYou, restored.ui.value.filter)
+        assertFalse(restored.ui.value.mineOnly)
+    }
 
     @Test
     fun delayedAllResponseCannotReplaceMineOrItsCache() = runTest {

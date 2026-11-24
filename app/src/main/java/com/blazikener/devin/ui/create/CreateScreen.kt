@@ -75,13 +75,13 @@ private val DraftSaver = Saver<NewSessionDraft, String>(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit, modeOverride: String? = null) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val settings = g.settings.value
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withShared(initialPrompt)) }
+    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride)) }
     var busy by remember { mutableStateOf(false) }
     var created by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }

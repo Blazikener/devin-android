@@ -1,6 +1,7 @@
 package com.blazikener.devin.ui.sessions
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.blazikener.devin.AppGraph
 import com.blazikener.devin.data.Page
@@ -72,8 +73,9 @@ internal class SessionsViewModel(
     pinned: StateFlow<Set<String>>,
     private val changePin: (String) -> Unit,
     private val perform: suspend (String, SessionAction) -> Session,
+    private val savedState: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
-    constructor(g: AppGraph, onActed: (Session) -> Unit) : this(
+    constructor(g: AppGraph, savedState: SavedStateHandle = SavedStateHandle(), onActed: (Session) -> Unit) : this(
         userId = g.auth.account.value?.userId,
         fetch = { first, after, archived, users -> g.api.listSessions(first, after, archived, users) },
         readCache = g.cache::sessions,
@@ -88,9 +90,14 @@ internal class SessionsViewModel(
                 SessionAction.Terminate -> g.api.terminate(id)
             }.also(onActed)
         },
+        savedState = savedState,
     )
 
-    private val _ui = MutableStateFlow(SessionsUi(mineOnly = userId != null))
+    private val _ui = MutableStateFlow(SessionsUi(
+        mineOnly = userId != null && (savedState.get<Boolean>("mine") ?: true),
+        filter = savedState.get<String>("filter")?.let { value -> SessionFilter.entries.find { it.name == value } } ?: SessionFilter.All,
+        query = savedState["query"] ?: "",
+    ))
     val ui: StateFlow<SessionsUi> = _ui
     private val cacheWrites = Mutex()
 
@@ -118,17 +125,22 @@ internal class SessionsViewModel(
         readCache(key.cacheKey)?.filter { !key.mine || it.userId == null || it.userId == userId }
 
     fun setFilter(f: SessionFilter) {
+        savedState["filter"] = f.name
         val previous = _ui.value.key
         _ui.update { it.copy(filter = f) }
         val key = _ui.value.key
         if (key != previous) openFeed(key)
     }
 
-    fun setQuery(q: String) = _ui.update { it.copy(query = q) }
+    fun setQuery(q: String) {
+        savedState["query"] = q
+        _ui.update { it.copy(query = q) }
+    }
 
     fun toggleMine() {
         if (userId == null) return
         _ui.update { it.copy(mineOnly = !it.mineOnly) }
+        savedState["mine"] = _ui.value.mineOnly
         openFeed(_ui.value.key)
     }
 
