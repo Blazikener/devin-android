@@ -8,6 +8,7 @@ import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.Session
+import com.blazikener.devin.data.versionKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +19,7 @@ internal data class CreateSessionUi(
     val sessionId: String? = null,
     val error: String? = null,
     val uncertain: Boolean = false,
+    val pendingDraft: NewSessionDraft? = null,
 )
 
 internal val NewSessionDraft.hasValidAcuLimit: Boolean
@@ -30,7 +32,7 @@ internal class CreateSessionViewModel(
     private val _ui = MutableStateFlow(
         when (val attempt = attempts.read()) {
             null -> CreateSessionUi()
-            CreateAttempt.Pending -> CreateSessionUi(uncertain = true)
+            CreateAttempt.Pending -> CreateSessionUi(uncertain = true, pendingDraft = attempts.pendingDraft())
             is CreateAttempt.Created -> CreateSessionUi(sessionId = attempt.sessionId)
         },
     )
@@ -42,37 +44,51 @@ internal class CreateSessionViewModel(
 
     fun acknowledgeCreated(sessionId: String) = attempts.acknowledgeCreated(sessionId)
 
-    fun resolveUncertain() {
-        if (!_ui.value.uncertain || _ui.value.submitting) return
+    fun resolveUncertain(form: NewSessionDraft) {
+        val state = _ui.value
+        if (!state.uncertain || state.submitting) return
         viewModelScope.launch {
-            if (attempts.write(null)) _ui.value = CreateSessionUi()
+            if (attempts.write(null, state.pendingDraft ?: form)) _ui.value = CreateSessionUi()
+            else _ui.value = state.copy(pendingDraft = attempts.pendingDraft(), error = "A newer start is unresolved. Check Sessions before clearing its warning.")
         }
     }
 
     fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false, defaultAcuLimit: Int? = null) {
         val state = _ui.value
         if (state.submitting || state.sessionId != null || state.uncertain != confirmedRetry) return
-        if (attempts.isConsumed(form)) {
+        val source = if (confirmedRetry) {
+            val pending = attempts.pendingDraft()
+            if (pending != null && pending.versionKey != (state.pendingDraft ?: form).versionKey) {
+                _ui.value = state.copy(pendingDraft = pending, error = "A newer start is unresolved. Review the previous task before retrying.")
+                return
+            }
+            pending ?: form
+        } else form
+        if (attempts.isConsumed(source)) {
             _ui.value = state.copy(error = "This draft was already started or cleared. Clear it to start a new task.")
             return
         }
         if (!confirmedRetry && attempts.read() == CreateAttempt.Pending) {
-            _ui.value = state.copy(uncertain = true)
+            _ui.value = state.copy(uncertain = true, pendingDraft = attempts.pendingDraft())
             return
         }
-        val prompt = form.prompt.trim()
+        val prompt = source.prompt.trim()
         if (prompt.isEmpty()) {
             _ui.value = state.copy(error = "Tell Devin what to do")
             return
         }
-        if (!form.hasValidAcuLimit) {
+        if (!source.hasValidAcuLimit) {
             _ui.value = state.copy(error = "Enter an ACU limit greater than 0, or leave it blank")
             return
         }
 
         _ui.value = CreateSessionUi(submitting = true)
         viewModelScope.launch {
-            if (!attempts.write(CreateAttempt.Pending, form)) {
+            // Resolve the configured default once so a restored retry sends the same limit.
+            val submitted = if (source.acu.isBlank() && (defaultAcuLimit ?: 0) > 0) {
+                source.copy(acu = defaultAcuLimit.toString(), draftVersion = source.versionKey)
+            } else source
+            if (!attempts.write(CreateAttempt.Pending, submitted)) {
                 _ui.value = state.copy(error = "Couldn't save the draft. The session was not started.")
                 return@launch
             }
@@ -80,23 +96,23 @@ internal class CreateSessionViewModel(
                 createSession(
                     CreateSessionRequest(
                         prompt = prompt,
-                        title = form.title.trim().ifEmpty { null },
-                        tags = form.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
-                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 } ?: defaultAcuLimit?.takeIf { it > 0 },
-                        playbookId = form.playbookId,
-                        repos = form.repos.ifEmpty { null },
-                        attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
+                        title = submitted.title.trim().ifEmpty { null },
+                        tags = submitted.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
+                        maxAcuLimit = submitted.acu.toIntOrNull()?.takeIf { it > 0 },
+                        playbookId = submitted.playbookId,
+                        repos = submitted.repos.ifEmpty { null },
+                        attachmentUrls = submitted.attachments.map { it.url }.ifEmpty { null },
                         createAsUserId = createAsUserId,
-                        devinMode = form.mode,
+                        devinMode = submitted.mode,
                     ),
                 )
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null, form)
-                _ui.value = CreateSessionUi(error = failure.message ?: "Couldn't start the session", uncertain = !rejected)
+                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null, submitted)
+                _ui.value = CreateSessionUi(error = failure.message ?: "Couldn't start the session", uncertain = !rejected, pendingDraft = if (rejected) null else attempts.pendingDraft() ?: submitted)
                 return@launch
             }
-            attempts.write(CreateAttempt.Created(session.id), form)
+            attempts.write(CreateAttempt.Created(session.id), submitted)
             _ui.value = CreateSessionUi(sessionId = session.id)
         }
     }

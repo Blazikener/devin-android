@@ -279,7 +279,7 @@ class CreateSessionViewModelTest {
         attempts.write(CreateAttempt.Pending, draft)
         val vm = model { Session("new-task") }
         assertTrue(vm.ui.value.uncertain)
-        vm.resolveUncertain()
+        vm.resolveUncertain(draft)
         runCurrent()
         assertFalse(vm.ui.value.uncertain)
         assertNull(attempts.read())
@@ -300,22 +300,52 @@ class CreateSessionViewModelTest {
         assertTrue(restored.ui.value.error.orEmpty().contains("already started"))
     }
 
+    @Test
+    fun restoredRetryUsesSubmittedSnapshotNotTheNewerEditableTask() = runTest {
+        val submitted = draft.copy(acu = "20", mode = "fast", draftVersion = "request")
+        attempts.write(CreateAttempt.Pending, submitted)
+        var request: CreateSessionRequest? = null
+        val restored = model { request = it; Session("retried-original") }
+        restored.submit(draft.copy(prompt = "New shared task", acu = "7"), null, confirmedRetry = true, defaultAcuLimit = 99)
+        runCurrent()
+        assertEquals(submitted.prompt, request?.prompt)
+        assertEquals(20, request?.maxAcuLimit)
+        assertEquals("fast", request?.devinMode)
+    }
+
+    @Test
+    fun anOlderWarningCannotResolveANewerAttempt() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        val older = model { error("Unexpected request") }
+        attempts.write(null, draft)
+        val newer = draft.copy(prompt = "Newer uncertain task")
+        attempts.write(CreateAttempt.Pending, newer)
+        older.resolveUncertain(draft)
+        runCurrent()
+        assertEquals(CreateAttempt.Pending, attempts.read())
+        assertTrue(older.ui.value.uncertain)
+        assertEquals(newer, older.ui.value.pendingDraft)
+    }
+
     private class FakeCreateAttempts : CreateAttemptStore {
         private var attempt: CreateAttempt? = null
+        private var pendingSnapshot: NewSessionDraft? = null
         var draft: NewSessionDraft? = null
         var failWrites = false
         private val consumed = mutableSetOf<String>()
 
         override fun read() = attempt
+        override fun pendingDraft() = pendingSnapshot.takeIf { attempt == CreateAttempt.Pending }
         override fun isConsumed(draft: NewSessionDraft) = draft.versionKey in consumed
 
         override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean {
             if (failWrites) return false
+            if (attempt == null && draft != null && pendingSnapshot?.versionKey != draft.versionKey) return false
             this.attempt = attempt
             if (attempt is CreateAttempt.Created && draft != null) {
                 consumed += draft.versionKey
                 if (this.draft?.versionKey == draft.versionKey) this.draft = NewSessionDraft()
-            } else if (attempt == CreateAttempt.Pending && draft != null) this.draft = draft
+            } else if (attempt == CreateAttempt.Pending && draft != null) { this.draft = draft; pendingSnapshot = draft }
             return true
         }
 

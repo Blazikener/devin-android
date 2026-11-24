@@ -134,6 +134,13 @@ class SettingsStore(context: Context) {
     internal val createAttempts: CreateAttemptStore = object : CreateAttemptStore {
         override fun isConsumed(draft: NewSessionDraft) = wasNewSessionDraftConsumed(draft)
 
+        override fun pendingDraft(): NewSessionDraft? = synchronized(draftLock) {
+            if (read() != CreateAttempt.Pending) return@synchronized null
+            drafts.getString(CREATE_ATTEMPT_DRAFT_KEY, null)?.let { raw ->
+                runCatching { json.decodeFromString(NewSessionDraft.serializer(), raw) }.getOrNull()
+            } ?: newSessionDraft().takeIf { hasNewSessionDraft() }
+        }
+
         override fun read(): CreateAttempt? = when (val value = drafts.getString(CREATE_ATTEMPT_KEY, null)) {
             null -> null
             "" -> CreateAttempt.Pending
@@ -144,22 +151,30 @@ class SettingsStore(context: Context) {
             withContext(Dispatchers.IO) {
                 synchronized(draftLock) {
                     val ownsAttempt = draft == null || drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) == draft.versionKey
+                    if (attempt == null && !ownsAttempt) return@synchronized false
+                    if (attempt == CreateAttempt.Pending && read() == CreateAttempt.Pending &&
+                        drafts.contains(CREATE_ATTEMPT_VERSION_KEY) && !ownsAttempt) return@synchronized false
                     drafts.edit().apply {
                         when (attempt) {
                             null -> if (ownsAttempt) {
                                 remove(CREATE_ATTEMPT_KEY)
                                 remove(CREATE_ATTEMPT_VERSION_KEY)
+                                remove(CREATE_ATTEMPT_DRAFT_KEY)
                             }
                             CreateAttempt.Pending -> {
                                 putString(CREATE_ATTEMPT_KEY, "")
                                 putString(CREATE_ATTEMPT_VERSION_KEY, draft?.versionKey)
+                                if (draft != null) putString(CREATE_ATTEMPT_DRAFT_KEY, json.encodeToString(NewSessionDraft.serializer(), draft))
                                 // A newer share may have saved while this POST was being scheduled.
                                 if (draft != null && (!hasNewSessionDraft() || newSessionDraft().versionKey == draft.versionKey)) {
                                     writeNewSessionDraft(draft)
                                 }
                             }
                             is CreateAttempt.Created -> {
-                                if (ownsAttempt) putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
+                                if (ownsAttempt) {
+                                    putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
+                                    remove(CREATE_ATTEMPT_DRAFT_KEY)
+                                }
                                 if (draft != null) consumeDraft(draft)
                             }
                         }
@@ -170,7 +185,7 @@ class SettingsStore(context: Context) {
         override fun acknowledgeCreated(sessionId: String) {
             synchronized(draftLock) {
                 if (read() == CreateAttempt.Created(sessionId)) drafts.edit()
-                    .remove(CREATE_ATTEMPT_KEY).remove(CREATE_ATTEMPT_VERSION_KEY).apply()
+                    .remove(CREATE_ATTEMPT_KEY).remove(CREATE_ATTEMPT_VERSION_KEY).remove(CREATE_ATTEMPT_DRAFT_KEY).apply()
             }
         }
     }
@@ -188,6 +203,7 @@ class SettingsStore(context: Context) {
         const val LEGACY_NEW_SESSION_KEY = "__new__"
         const val CREATE_ATTEMPT_KEY = "__new_session_attempt__"
         const val CREATE_ATTEMPT_VERSION_KEY = "__new_session_attempt_version__"
+        const val CREATE_ATTEMPT_DRAFT_KEY = "__new_session_attempt_draft__"
         const val CONSUMED_DRAFTS_KEY = "__consumed_new_session_drafts__"
     }
 

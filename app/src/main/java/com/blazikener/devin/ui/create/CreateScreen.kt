@@ -214,12 +214,14 @@ fun CreateScreen(
                 Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (submission.uncertain) {
+                val retryDraft = submission.pendingDraft ?: form
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         "This session may already have started. Check Sessions before retrying.",
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
                     )
+                    submission.pendingDraft?.let { Text("Previous task: ${it.prompt}", style = MaterialTheme.typography.bodyMedium) }
                     TextButton(onClick = onCheckSessions) { Text("Check Sessions") }
                     TextButton(
                         onClick = {
@@ -228,7 +230,7 @@ fun CreateScreen(
                                 vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
-                        enabled = form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        enabled = retryDraft.prompt.isNotBlank() && uploads.isEmpty() && retryDraft.hasValidAcuLimit,
                     ) { Text("Retry anyway") }
                 }
             }
@@ -348,11 +350,11 @@ fun CreateScreen(
         },
         confirmButton = { TextButton(onClick = {
             attachmentVm.uploads.clear()
+            vm.resolveUncertain(form)
             graph.settings.consumeNewSessionDraft(form)
-            form = NewSessionDraft(acu = settings.defaultAcuLimit?.toString().orEmpty(), mode = settings.defaultMode)
+            form = graph.settings.newSessionDraft()
             lastSavedForm = form
-            ownsDraft = false
-            vm.resolveUncertain()
+            ownsDraft = graph.settings.hasNewSessionDraft()
             vm.clearError()
             confirmClear = false
         }) { Text("Clear draft") } },

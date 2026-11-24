@@ -56,10 +56,15 @@ class DraftOwnershipTest {
         store.saveNewSessionDraft(newer)
         store.createAttempts.write(CreateAttempt.Pending, original)
         assertEquals(newer, store.newSessionDraft())
+        assertEquals(original, SettingsStore(context).createAttempts.pendingDraft())
+        assertFalse(store.createAttempts.write(null, newer))
+        assertTrue(store.createAttempts.write(null, original))
         store.createAttempts.write(CreateAttempt.Pending, newer)
         store.createAttempts.write(CreateAttempt.Created("old-session"), original)
         assertEquals(CreateAttempt.Pending, store.createAttempts.read())
         assertEquals(newer, store.newSessionDraft())
+        assertFalse(store.createAttempts.write(null, original))
+        assertEquals(CreateAttempt.Pending, SettingsStore(context).createAttempts.read())
     }
 
     @Test fun explicitClearOfAnOldFormDoesNotDeleteNewerDraft() {
