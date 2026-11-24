@@ -82,6 +82,7 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
     var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withShared(initialPrompt)) }
+    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft()) }
     var busy by remember { mutableStateOf(false) }
     var created by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -92,8 +93,15 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     val failedUploads = remember { mutableStateListOf<Upload>() }
     var uploading by remember { mutableStateOf(0) }
 
-    // Saved on every edit so the form survives Back, leaving the app, and process death.
-    LaunchedEffect(form) { if (!created) g.settings.saveNewSessionDraft(form) }
+    // Another Create entry may have saved a newer draft while this one was below it.
+    // Do not overwrite it on re-entry; refill an empty slot if that other entry submitted.
+    LaunchedEffect(form) {
+        val slotIsEmpty = !g.settings.hasNewSessionDraft()
+        if (!created && (form != lastSavedForm || (slotIsEmpty && !form.isEmpty))) {
+            g.settings.saveNewSessionDraft(form)
+            lastSavedForm = form
+        }
+    }
 
     LaunchedEffect(Unit) {
         launch {

@@ -86,6 +86,10 @@ import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
+import com.blazikener.devin.ui.components.DevinRootShell
+import com.blazikener.devin.ui.navigation.RootDestination
+import com.blazikener.devin.ui.navigation.SessionsRequest
+import androidx.compose.material.icons.outlined.Menu
 import com.blazikener.devin.ui.components.EmptyState
 import com.blazikener.devin.ui.components.StatusPill
 import com.blazikener.devin.ui.components.openUrl
@@ -103,6 +107,9 @@ fun SessionsScreen(
     onBack: () -> Unit,
     initialFilter: SessionFilter?,
     initialSearch: Boolean,
+    onHome: () -> Unit = onBack,
+    navigationRequest: SessionsRequest? = null,
+    onNavigationRequestHandled: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
@@ -115,6 +122,8 @@ fun SessionsScreen(
     var applied by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
+    val listIdentity = "${ui.key.mine}|${ui.key.archived}|${ui.filter.name}|${ui.query}"
+    var previousListIdentity by rememberSaveable { mutableStateOf(listIdentity) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     LaunchedEffect(vm, initialFilter, initialSearch) {
@@ -122,6 +131,14 @@ fun SessionsScreen(
             initialFilter?.let(vm::setFilter)
             if (initialSearch) searching = true
             applied = true
+        }
+    }
+
+    LaunchedEffect(navigationRequest) {
+        navigationRequest?.let { request ->
+            request.filter?.let(vm::setFilter)
+            if (request.search) searching = true
+            onNavigationRequestHandled()
         }
     }
 
@@ -144,7 +161,14 @@ fun SessionsScreen(
             layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 5 } == true
         }
     }
-    LaunchedEffect(ui.key, ui.filter, ui.query) { listState.scrollToItem(0) }
+    LaunchedEffect(listIdentity) {
+        // Effects restart after a saved root re-enters composition. Only a real filter/query/owner
+        // change should reset the independently restored LazyListState.
+        if (previousListIdentity != listIdentity) {
+            previousListIdentity = listIdentity
+            listState.scrollToItem(0)
+        }
+    }
     val canLoadMore = feed.hasMore && !feed.loadingMore && !feed.refreshing && feed.error == null && feed.pageError == null
     val waitingForMore = feed.loadingMore || canLoadMore ||
         (feed.hasMore && feed.refreshing && feed.error == null && feed.pageError == null)
@@ -152,6 +176,14 @@ fun SessionsScreen(
         if (canLoadMore && (visible.isEmpty() || nearEnd)) vm.loadMore()
     }
 
+    DevinRootShell(
+        selected = RootDestination.Sessions, accountName = account?.name,
+        recents = ui.all, needsYouCount = ui.needsYouCount,
+        onHome = onHome, onSessions = {},
+        onNeedsYou = { vm.setFilter(SessionFilter.NeedsYou) },
+        onSearch = { searching = true }, onSettings = onSettings,
+        onOpen = onOpen, onNew = onNew,
+    ) { openMenu ->
     Scaffold(
         topBar = {
             TopAppBar(
@@ -165,8 +197,8 @@ fun SessionsScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = openMenu) {
+                        Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
                     }
                 },
                 actions = {
@@ -269,6 +301,7 @@ fun SessionsScreen(
             },
             dismissButton = { TextButton(onClick = { confirmTerminate = null }) { Text("Cancel") } },
         )
+    }
     }
 }
 

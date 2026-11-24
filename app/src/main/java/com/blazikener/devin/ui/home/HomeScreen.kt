@@ -97,6 +97,8 @@ import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinOrb
+import com.blazikener.devin.ui.components.DevinRootShell
+import com.blazikener.devin.ui.navigation.RootDestination
 import com.blazikener.devin.ui.components.StatusDot
 import com.blazikener.devin.ui.components.rememberReducedMotion
 import com.blazikener.devin.ui.sessions.SessionsViewModel
@@ -125,7 +127,6 @@ fun HomeScreen(
     val compactHeight = LocalConfiguration.current.screenHeightDp < 480
     val imeVisible = WindowInsets.isImeVisible
     val compactIme = compactHeight && imeVisible
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var prompt by rememberSaveable { mutableStateOf("") }
     var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
@@ -185,30 +186,14 @@ fun HomeScreen(
         }
     }
 
-    fun navigateFromDrawer(action: () -> Unit) {
-        scope.launch {
-            drawerState.close()
-            action()
-        }
-    }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            HomeDrawer(
-                accountName = account?.name,
-                ui = ui,
-                openTarget = drawerState.targetValue == DrawerValue.Open,
-                onSearch = { navigateFromDrawer { onSessions(null, true) } },
-                onAllSessions = { navigateFromDrawer { onSessions(null, false) } },
-                onNeedsYou = { navigateFromDrawer { onSessions(SessionFilter.NeedsYou, false) } },
-                onSettings = { navigateFromDrawer(onSettings) },
-                onOpen = { id -> navigateFromDrawer { onOpen(id) } },
-                onViewAll = { navigateFromDrawer { onSessions(null, false) } },
-                onNewSession = { navigateFromDrawer { onNewForm("") } },
-            )
-        },
-    ) {
+    DevinRootShell(
+        selected = RootDestination.Home, accountName = account?.name,
+        recents = ui.all, needsYouCount = ui.needsYouCount,
+        onHome = {}, onSessions = { onSessions(null, false) },
+        onNeedsYou = { onSessions(SessionFilter.NeedsYou, false) },
+        onSearch = { onSessions(null, true) }, onSettings = onSettings,
+        onOpen = onOpen, onNew = { onNewForm("") },
+    ) { openMenu ->
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
@@ -220,7 +205,7 @@ fun HomeScreen(
                         Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = openMenu) {
                             Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
                         }
                         Spacer(Modifier.weight(1f))
@@ -262,10 +247,7 @@ fun HomeScreen(
                                     Modifier.clip(CircleShape)
                                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                         .clickable {
-                                            scope.launch {
-                                                drawerState.close()
-                                                onSessions(if (needsYou > 0) SessionFilter.NeedsYou else null, false)
-                                            }
+                                            onSessions(if (needsYou > 0) SessionFilter.NeedsYou else null, false)
                                         }
                                         .padding(horizontal = 18.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -484,149 +466,6 @@ private fun HomeSendButton(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HomeDrawer(
-    accountName: String?,
-    ui: com.blazikener.devin.ui.sessions.SessionsUi,
-    openTarget: Boolean,
-    onSearch: () -> Unit,
-    onAllSessions: () -> Unit,
-    onNeedsYou: () -> Unit,
-    onSettings: () -> Unit,
-    onOpen: (String) -> Unit,
-    onViewAll: () -> Unit,
-    onNewSession: () -> Unit,
-) {
-    ModalDrawerSheet {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 12.dp),
-        ) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 12.dp, top = 20.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Devin",
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = onSearch) {
-                        Icon(Icons.Outlined.Search, contentDescription = "Search sessions")
-                    }
-                }
-                DrawerItem(0, openTarget) {
-                    NavigationDrawerItem(
-                        label = { Text("All sessions") },
-                        selected = false,
-                        onClick = onAllSessions,
-                    )
-                }
-                DrawerItem(1, openTarget) {
-                    NavigationDrawerItem(
-                        label = { Text("Needs you") },
-                        selected = false,
-                        onClick = onNeedsYou,
-                        badge = if (ui.needsYouCount > 0) {
-                            { Badge { Text("${ui.needsYouCount}") } }
-                        } else null,
-                    )
-                }
-                DrawerItem(2, openTarget) {
-                    NavigationDrawerItem(
-                        label = { Text("Settings") },
-                        selected = false,
-                        onClick = onSettings,
-                    )
-                }
-                androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text(
-                    "Recents",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
-                )
-                ui.all.sortedByDescending(Session::updatedAt).take(8).forEachIndexed { index, session ->
-                    DrawerItem(index + 3, openTarget) {
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                .clickable { onOpen(session.id) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            StatusDot(session.state)
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                session.displayTitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-                DrawerItem(11, openTarget) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .clickable(onClick = onViewAll)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("View all ›", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            androidx.compose.material3.HorizontalDivider()
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(accountName?.trim()?.firstOrNull()?.uppercase() ?: "D", fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.width(10.dp))
-                Text(accountName?.takeIf(String::isNotBlank) ?: "Devin", modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(
-                    Modifier.clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface)
-                        .clickable(onClick = onNewSession)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("New session", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.surface)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DrawerItem(index: Int, openTarget: Boolean, content: @Composable () -> Unit) {
-    val alpha by animateFloatAsState(
-        targetValue = if (openTarget) 1f else 0f,
-        animationSpec = tween(durationMillis = 260, delayMillis = index.coerceAtMost(8) * 30),
-        label = "drawer row alpha",
-    )
-    val offset by animateDpAsState(
-        targetValue = if (openTarget) 0.dp else (-16).dp,
-        animationSpec = tween(durationMillis = 260, delayMillis = index.coerceAtMost(8) * 30),
-        label = "drawer row offset",
-    )
-    Box(
-        Modifier.fillMaxWidth().graphicsLayer {
-            this.alpha = alpha
-            translationX = offset.toPx()
-        },
-    ) {
-        content()
-    }
-}
-
 @Composable
 private fun HomeOrb(busy: Boolean) {
     val context = LocalContext.current

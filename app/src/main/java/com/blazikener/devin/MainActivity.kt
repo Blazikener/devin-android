@@ -34,6 +34,7 @@ import com.blazikener.devin.ui.session.SessionScreen
 import com.blazikener.devin.ui.sessions.SessionsScreen
 import com.blazikener.devin.ui.settings.SettingsScreen
 import com.blazikener.devin.ui.theme.DevinTheme
+import com.blazikener.devin.ui.navigation.*
 
 sealed interface Launch {
     data class OpenSession(val id: String) : Launch
@@ -62,12 +63,14 @@ class MainActivity : ComponentActivity() {
                     val l = launch ?: return@LaunchedEffect
                     if (account == null) return@LaunchedEffect
                     pending.value = null
-                    // Links, shares and shortcuts return to home on Back and repeated launches don't pile up screens.
-                    val route = when (l) {
-                        is Launch.OpenSession -> "session/${l.id}"
-                        is Launch.NewSession -> "create?prompt=" + enc(l.prompt.orEmpty())
+                    // Cold launches get a Home parent. Warm launches preserve the exact previous route.
+                    if (nav.currentDestination?.route == Routes.Login) {
+                        nav.navigate(Routes.Home) { popUpTo(Routes.Login) { inclusive = true } }
                     }
-                    nav.navigate(route) { popUpTo("home") }
+                    when (l) {
+                        is Launch.OpenSession -> nav.openSessionFromLaunch(l.id)
+                        is Launch.NewSession -> nav.openCreateFromLaunch(l.prompt)
+                    }
                 }
                 NavHost(
                     nav, startDestination = start,
@@ -86,46 +89,52 @@ class MainActivity : ComponentActivity() {
                     composable("home") {
                         LaunchedEffect(Unit) { askNotifications() }
                         HomeScreen(
-                            onOpen = { nav.navigate("session/$it") },
+                            onOpen = { nav.navigate(Routes.session(it)) },
                             onSessions = { filter, search ->
-                                nav.navigate("sessions?filter=${filter?.name.orEmpty()}&search=$search")
+                                nav.showSessionsRoot(filter, search)
                             },
-                            onNewForm = { nav.navigate("create?prompt=${enc(it)}") },
+                            onNewForm = { nav.navigate(Routes.create(it)) },
                             onSettings = { nav.navigate("settings") },
                         )
                     }
                     composable(
-                        "sessions?filter={filter}&search={search}",
+                        Routes.Sessions,
                         arguments = listOf(
                             navArgument("filter") { type = NavType.StringType; defaultValue = "" },
                             navArgument("search") { type = NavType.BoolType; defaultValue = false },
                         ),
                     ) { e ->
+                        val encodedRequest by e.savedStateHandle.getStateFlow<String?>(
+                            SessionNavigationState.SessionsRequest, null,
+                        ).collectAsStateWithLifecycle()
                         val initialFilter = e.arguments?.getString("filter").orEmpty()
                             .takeIf(String::isNotEmpty)?.let { value -> SessionFilter.entries.firstOrNull { it.name == value } }
                         val initialSearch = e.arguments?.getBoolean("search") ?: false
                         SessionsScreen(
-                            onOpen = { nav.navigate("session/$it") },
-                            onNew = { nav.navigate("create?prompt=") },
+                            onOpen = { nav.navigate(Routes.session(it)) },
+                            onNew = { nav.navigate(Routes.create()) },
                             onSettings = { nav.navigate("settings") },
                             onBack = { nav.back() },
                             initialFilter = initialFilter,
                             initialSearch = initialSearch,
+                            onHome = { nav.showHomeRoot() },
+                            navigationRequest = SessionsRequest.decode(encodedRequest),
+                            onNavigationRequestHandled = { e.savedStateHandle[SessionNavigationState.SessionsRequest] = null },
                         )
                     }
-                    composable("session/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
+                    composable(Routes.Session, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
                         val id = e.arguments!!.getString("id")!!
-                        SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate("session/$it") })
+                        SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) })
                     }
-                    composable("create?prompt={prompt}", arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
+                    composable(Routes.Create, arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
                         CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
-                            nav.navigate("session/$id") { popUpTo("home") }
+                            nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
                         })
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
-                            nav.navigate("login") { popUpTo(0) { inclusive = true } }
+                            nav.clearProtectedNavigation()
                         })
                     }
                 }
@@ -151,7 +160,6 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        private fun enc(s: String) = android.net.Uri.encode(s)
         private val sessionUrl = Regex("""/sessions/([0-9a-fA-F]{32}|devin-[0-9a-fA-F]{32})""")
 
         fun parse(intent: Intent?): Launch? {
