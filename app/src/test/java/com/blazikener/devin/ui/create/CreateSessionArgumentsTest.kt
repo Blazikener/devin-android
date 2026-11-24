@@ -92,4 +92,13 @@ class CreateSessionArgumentsTest {
         assertTrue(unfinished.shouldPreserveOnRecovery(completed))
         assertFalse(opened.shouldPreserveOnRecovery(completed))
     }
+
+    @Test fun repeatedExternalShareDoesNotAppendTheSameContributionAgain() {
+        val first = NewSessionDraft(prompt = "Unfinished draft").withCreateArguments("Shared context", null, freshIncoming = true)
+        val restored = json.decodeFromString(NewSessionDraft.serializer(),
+            json.encodeToString(NewSessionDraft.serializer(), first.copy(title = "Keep edits")))
+        val repeated = restored.withCreateArguments("Shared context", null, freshIncoming = true)
+        assertEquals("Unfinished draft\n\nShared context", repeated.prompt)
+        assertEquals(restored, repeated)
+    }
 }
