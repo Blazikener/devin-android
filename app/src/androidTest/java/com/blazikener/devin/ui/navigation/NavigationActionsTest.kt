@@ -96,6 +96,24 @@ class NavigationActionsTest {
         assertEquals(Routes.Sessions, nav.currentDestination!!.route)
     }
 
+    @Test fun recoverySessionsHasHomeAsRootAndPreservesAnExistingList() = onMain {
+        val nav = controller()
+        nav.openCreateFromLaunch("uncertain Home task")
+        nav.showSessionsFromCreateRecovery()
+        assertEquals(Routes.Sessions, nav.currentDestination!!.route)
+        nav.showHomeRoot()
+        assertEquals(Routes.Home, nav.currentDestination!!.route)
+        nav.showSessionsRoot()
+        nav.currentBackStackEntry!!.savedStateHandle["query"] = "preserved"
+        val existing = nav.currentBackStackEntry!!.id
+        nav.openCreateFromLaunch("uncertain Sessions task")
+        nav.showSessionsFromCreateRecovery()
+        assertEquals(existing, nav.currentBackStackEntry!!.id)
+        assertEquals("preserved", nav.currentBackStackEntry!!.savedStateHandle.get<String>("query"))
+        nav.showHomeRoot()
+        assertEquals(Routes.Home, nav.currentDestination!!.route)
+    }
+
     class Marker : ViewModel() {
         var cleared = false
         override fun onCleared() { cleared = true }
