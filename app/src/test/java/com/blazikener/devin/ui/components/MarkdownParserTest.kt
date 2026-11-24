@@ -1,5 +1,7 @@
 package com.blazikener.devin.ui.components
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -72,6 +74,133 @@ class MarkdownParserTest {
                 "val x = 1",
             MarkdownParser.plain("I've received your request: **Please continue**\n\nUse `ApiException`\n- Retry [the docs](https://x.y)\n```kotlin\nval x = 1\n```"),
         )
+    }
+
+    @Test
+    fun linksKeepBalancedParenthesesInDestination() {
+        val wiki = "https://en.wikipedia.org/wiki/Foo_(bar)"
+        val nested = "https://example.com/foo_(a(b)c).html"
+        val rendered = MarkdownParser.inline("See [Wiki]($wiki), then [Example]($nested).", Color.Unspecified, Color.Unspecified)
+
+        assertEquals("See Wiki, then Example.", rendered.text)
+        assertEquals(
+            listOf("Wiki" to wiki, "Example" to nested),
+            rendered.getLinkAnnotations(0, rendered.length).map {
+                rendered.text.substring(it.start, it.end) to (it.item as LinkAnnotation.Url).url
+            },
+        )
+    }
+
+    @Test
+    fun destinationsUnescapePunctuationWithoutChangingParenthesisDepth() {
+        val rendered = MarkdownParser.inline(
+            """[open](https://a.com/\(foo) ![close](https://a.com/foo\).png) [slash](https://a.com/\\(foo)\q\!)""",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("open close slash", rendered.text)
+        assertEquals(
+            listOf("https://a.com/(foo", "https://a.com/foo).png", """https://a.com/\(foo)\q!"""),
+            rendered.getLinkAnnotations(0, rendered.length).map { (it.item as LinkAnnotation.Url).url },
+        )
+    }
+
+    @Test
+    fun imagesUseAltTextAsClickableLabel() {
+        val url = "https://example.com/chart_(final).png"
+        val markdown = "See ![Final chart]($url) and ![]($url)."
+        val rendered = MarkdownParser.inline(markdown, Color.Unspecified, Color.Unspecified)
+
+        assertEquals("See Final chart and Image.", rendered.text)
+        assertEquals(rendered.text, MarkdownParser.plain(markdown))
+        assertEquals(
+            listOf("Final chart" to url, "Image" to url),
+            rendered.getLinkAnnotations(0, rendered.length).map {
+                rendered.text.substring(it.start, it.end) to (it.item as LinkAnnotation.Url).url
+            },
+        )
+    }
+
+    @Test
+    fun linkedImageUsesAltTextAndOpensOuterDestination() {
+        val rendered = MarkdownParser.inline(
+            "See [![Chart](https://example.com/image.png)](https://example.com/report).",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("See Chart.", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("Chart", rendered.text.substring(link.start, link.end))
+        assertEquals("https://example.com/report", (link.item as LinkAnnotation.Url).url)
+    }
+
+    @Test
+    fun bracketsInsideInlineCodeDoNotEndLinkLabels() {
+        val rendered = MarkdownParser.inline(
+            "[`a[0]`](https://example.com/code)",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("a[0]", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("a[0]", rendered.text.substring(link.start, link.end))
+        assertEquals("https://example.com/code", (link.item as LinkAnnotation.Url).url)
+    }
+
+    @Test
+    fun linksAndImagesIgnoreOptionalTitles() {
+        val rendered = MarkdownParser.inline(
+            """[Double](https://example.com/double "look \"here\"") ![Single](https://example.com/single.png 'caption') [Paren](https://example.com/paren (caption))""",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("Double Single Paren", rendered.text)
+        assertEquals(
+            listOf("https://example.com/double", "https://example.com/single.png", "https://example.com/paren"),
+            rendered.getLinkAnnotations(0, rendered.length).map { (it.item as LinkAnnotation.Url).url },
+        )
+    }
+
+    @Test
+    fun linksAndImagesKeepAngleBracketedDestinationsWithoutBrackets() {
+        val rendered = MarkdownParser.inline(
+            """[Report](<https://example.com/a report>) ![Graph](<https://example.com/graph (final).png> "caption")""",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("Report Graph", rendered.text)
+        assertEquals(
+            listOf("https://example.com/a report", "https://example.com/graph (final).png"),
+            rendered.getLinkAnnotations(0, rendered.length).map { (it.item as LinkAnnotation.Url).url },
+        )
+    }
+
+    @Test
+    fun escapedBangStaysLiteralBesideAnOrdinaryLink() {
+        val rendered = MarkdownParser.inline(
+            """wow\![x](https://example.com/report) \* literal \q `\!`""",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("""wow!x * literal \q \!""", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("x", rendered.text.substring(link.start, link.end))
+        assertEquals("https://example.com/report", (link.item as LinkAnnotation.Url).url)
+    }
+
+    @Test
+    fun unclosedDestinationDoesNotConsumeFollowingLink() {
+        val rendered = MarkdownParser.inline("[broken](foo(bar) then [valid](path)", Color.Unspecified, Color.Unspecified)
+
+        assertEquals("[broken](foo(bar) then valid", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("path", (link.item as LinkAnnotation.Url).url)
     }
 
     @Test
