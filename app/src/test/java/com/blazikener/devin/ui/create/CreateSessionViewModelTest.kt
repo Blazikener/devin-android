@@ -18,6 +18,7 @@ import com.blazikener.devin.data.createFingerprint
 import com.blazikener.devin.data.toCreateRequest
 import com.blazikener.devin.initialLaunch
 import com.blazikener.devin.savedSessionOnLaunch
+import com.blazikener.devin.ui.home.recoveredHomePrompt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -222,6 +223,20 @@ class CreateSessionViewModelTest {
         assertEquals("original-session", restored.openSaved(draft.prompt))
         assertEquals(CreateResult.Open("original-session"), restored.submit(CreateSessionRequest(draft.prompt)))
         restored.acknowledgeOpened("original-session")
+        assertNull(pending())
+    }
+
+    @Test
+    fun launcherRecoveryKeepsGuardUntilHomeClearsOnlyTheMatchingRestoredPrompt() = runTest {
+        val completed = CreateAttempt(createFingerprint(draft.prompt), 1, "original-session")
+        attempts.write(listOf(completed))
+        val restored = gate { error("Unexpected new request") }
+        val id = savedSessionOnLaunch(null, "home", restored.attempts.value)
+        assertEquals("original-session", id)
+        assertEquals(CreateResult.Open("original-session"), restored.submit(CreateSessionRequest(draft.prompt)))
+        assertEquals("", recoveredHomePrompt(" ${draft.prompt} ", completed))
+        assertEquals("New Home draft", recoveredHomePrompt("New Home draft", completed))
+        restored.acknowledgeOpened(checkNotNull(id))
         assertNull(pending())
     }
 

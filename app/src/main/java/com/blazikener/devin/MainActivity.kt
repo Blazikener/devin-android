@@ -51,6 +51,7 @@ internal fun savedSessionOnLaunch(launch: Launch?, destination: String?, attempt
     if (launch == null && destination == "home") attempts.firstNotNullOfOrNull { it.sessionId } else null
 
 private const val CREATE_RECENTS = "sessions?filter=All&search=false&allUsers=true"
+private const val HOME_RECOVERED_SESSION = "home_recovered_session"
 
 class MainActivity : ComponentActivity() {
     private val pending = mutableStateOf<Launch?>(null)
@@ -82,7 +83,10 @@ class MainActivity : ComponentActivity() {
                     val l = launch
                     if (!checkedRecovery.value) {
                         checkedRecovery.value = true
-                        savedSessionOnLaunch(l, destination, g.createGate.attempts.value)?.let(::openCreated)
+                        savedSessionOnLaunch(l, destination, g.createGate.attempts.value)?.let { id ->
+                            nav.getBackStackEntry("home").savedStateHandle[HOME_RECOVERED_SESSION] = id
+                            nav.navigate("session/$id") { popUpTo("home") }
+                        }
                     }
                     if (l != null) {
                         pending.value = null
@@ -108,7 +112,9 @@ class MainActivity : ComponentActivity() {
                             nav.navigate("home") { popUpTo("login") { inclusive = true } }
                         })
                     }
-                    composable("home") {
+                    composable("home") { entry ->
+                        val recoveredSession by entry.savedStateHandle
+                            .getStateFlow<String?>(HOME_RECOVERED_SESSION, null).collectAsStateWithLifecycle()
                         LaunchedEffect(Unit) { askNotifications() }
                         HomeScreen(
                             onOpen = { nav.navigate("session/$it") },
@@ -122,6 +128,11 @@ class MainActivity : ComponentActivity() {
                             onSettings = { nav.navigate("settings") },
                             onCheckRecents = { nav.navigate(CREATE_RECENTS) },
                             onCreated = ::openCreated,
+                            recoveredSessionId = recoveredSession,
+                            onRecoveryHandled = { id ->
+                                entry.savedStateHandle[HOME_RECOVERED_SESSION] = null
+                                scope.launch { g.createGate.acknowledgeOpened(id) }
+                            },
                         )
                     }
                     composable(

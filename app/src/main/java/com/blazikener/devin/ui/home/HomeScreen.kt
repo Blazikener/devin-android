@@ -108,6 +108,9 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal fun recoveredHomePrompt(prompt: String, attempt: CreateAttempt): String =
+    if (attempt.matches(prompt)) "" else prompt
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
@@ -117,6 +120,8 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onCheckRecents: () -> Unit,
     onCreated: (String) -> Unit,
+    recoveredSessionId: String?,
+    onRecoveryHandled: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -182,6 +187,18 @@ fun HomeScreen(
             createVm.consumeResult()
             onCreated(it)
         }
+    }
+
+    LaunchedEffect(recoveredSessionId, attempts) {
+        val id = recoveredSessionId ?: return@LaunchedEffect
+        attempts.firstOrNull { it.sessionId == id }?.let { attempt ->
+            val cleared = recoveredHomePrompt(prompt, attempt)
+            if (cleared != prompt) {
+                prompt = cleared
+                modeChosen = false
+            }
+        }
+        onRecoveryHandled(id)
     }
 
     fun send(retry: CreateAttempt?) {
