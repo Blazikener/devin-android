@@ -128,9 +128,13 @@ class MainActivity : ComponentActivity() {
                         ),
                     ) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
-                        CreateScreen(p, e.arguments?.getString("mode"), onBack = { nav.back() }, onCreated = { id ->
-                            nav.navigate("session/$id") { popUpTo("home") }
-                        })
+                        CreateScreen(
+                            initialPrompt = p,
+                            modeOverride = e.arguments?.getString("mode"),
+                            onBack = { nav.back() },
+                            onCheckRecents = { nav.navigate("sessions?filter=&search=false") { popUpTo("home") } },
+                            onCreated = { id -> nav.navigate("session/$id") { popUpTo("home") } },
+                        )
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {

@@ -76,7 +76,13 @@ private val DraftSaver = Saver<NewSessionDraft, String>(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, modeOverride: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CreateScreen(
+    initialPrompt: String?,
+    modeOverride: String?,
+    onBack: () -> Unit,
+    onCheckRecents: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val settings = g.settings.value
@@ -86,7 +92,7 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String?, onBack: () -> Un
         mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride))
     }
     val vm: CreateSessionViewModel = viewModel {
-        CreateSessionViewModel(g.api::createSession) { g.settings.saveNewSessionDraft(NewSessionDraft()) }
+        CreateSessionViewModel(g.api::createSession, g.settings.createAttempts)
     }
     val submission by vm.ui.collectAsStateWithLifecycle()
     val busy = submission.submitting || submission.sessionId != null
@@ -99,7 +105,12 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String?, onBack: () -> Un
 
     // Saved on every edit so the form survives Back, leaving the app, and process death.
     LaunchedEffect(form) { if (vm.ui.value.sessionId == null) g.settings.saveNewSessionDraft(form) }
-    LaunchedEffect(submission.sessionId) { submission.sessionId?.let(onCreated) }
+    LaunchedEffect(submission.sessionId) {
+        submission.sessionId?.let {
+            onCreated(it)
+            vm.acknowledgeCreated()
+        }
+    }
 
     LaunchedEffect(Unit) {
         launch {
@@ -156,10 +167,36 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String?, onBack: () -> Un
     }
 
     Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("New session") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-        )
+        Column {
+            TopAppBar(
+                title = { Text("New session") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+                actions = {
+                    if (submission.submitting) {
+                        Row(
+                            Modifier.padding(end = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("Starting session…")
+                        }
+                    }
+                },
+            )
+            if (submission.uncertain) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Text("The previous session may already have started. Check Recents before retrying.", color = MaterialTheme.colorScheme.error)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onCheckRecents) { Text("Check Recents") }
+                        TextButton(
+                            onClick = { vm.submit(form, settings.createAsUserId, confirmedRetry = true) },
+                            enabled = form.prompt.isNotBlank() && uploading == 0,
+                        ) { Text("Retry anyway") }
+                    }
+                }
+            }
+        }
     }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -223,8 +260,8 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String?, onBack: () -> Un
                 modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
             submission.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = { vm.submit(form, settings.createAsUserId) }, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
+            Button(onClick = { vm.submit(form, settings.createAsUserId) }, enabled = !busy && !submission.uncertain && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
+                Text("Start session")
             }
             TextButton(onClick = { form = defaults; failedUploads.clear(); vm.clearError() }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
         }
