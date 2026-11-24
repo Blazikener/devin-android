@@ -9,8 +9,12 @@ import com.blazikener.devin.data.DevinApi
 import com.blazikener.devin.data.SettingsStore
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class AppGraph(context: Context) {
+    internal val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val auth = AuthStore(context)
     val settings = SettingsStore(context)
     val cache = Cache(context)

@@ -77,8 +77,9 @@ class MainActivity : ComponentActivity() {
                     if (!checkedRecovery.value) {
                         val destination = nav.currentBackStackEntryFlow.first { it.destination.route != Routes.Login }.destination.route
                         checkedRecovery.value = true
-                        savedSessionOnLaunch(launch, destination, g.createGate.attempts.value)?.let { id ->
-                            nav.openSessionFromLaunch(id)
+                        val attempts = g.createGate.attempts.value
+                        savedSessionOnLaunch(launch, destination, attempts)?.let { id ->
+                            nav.openCreatedSessionFromLaunch(id, attempts.first { it.sessionId == id }.fingerprint)
                             g.createGate.acknowledgeOpened(id)
                         }
                     }
@@ -103,16 +104,21 @@ class MainActivity : ComponentActivity() {
                             nav.navigate("home") { popUpTo("login") { inclusive = true } }
                         })
                     }
-                    composable("home") {
+                    composable("home") { entry ->
                         LaunchedEffect(Unit) { askNotifications() }
+                        val consumedCreate by entry.savedStateHandle.getStateFlow<String?>(
+                            SessionNavigationState.ConsumedHomeCreate, null,
+                        ).collectAsStateWithLifecycle()
                         HomeScreen(
-                            onOpen = { nav.navigate(Routes.session(it)) },
+                            onOpen = { nav.openSessionFromLaunch(it) },
                             onSessions = { filter, search ->
                                 nav.showSessionsRoot(filter, search)
                             },
                             onNewForm = { prompt, mode -> nav.navigate(Routes.create(prompt, mode)) },
                             onSettings = { nav.navigate("settings") },
                             onCreateRecovery = { nav.showSessionsFromCreateRecovery() },
+                            consumedCreateFingerprint = consumedCreate,
+                            onConsumedCreateHandled = { entry.savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = null },
                         )
                     }
                     composable(
@@ -156,10 +162,8 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
-                            scope.launch {
-                                g.createGate.forgetAll()
-                                nav.clearProtectedNavigation()
-                            }
+                            g.applicationScope.launch { g.createGate.forgetAll() }
+                            nav.clearProtectedNavigation()
                         })
                     }
                 }

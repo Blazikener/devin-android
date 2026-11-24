@@ -1,5 +1,6 @@
 package com.blazikener.devin.ui.navigation
 
+import android.os.Bundle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -69,6 +70,19 @@ class NavigationActionsTest {
         assertEquals(Routes.Home, nav.currentDestination!!.route)
     }
 
+    @Test fun recoveredCreateRetainsOneShotHomeCleanupThroughProcessRestoration() = onMain {
+        val nav = controller()
+        nav.openCreatedSessionFromLaunch("saved-success", "submitted-prompt-fingerprint")
+        val restored = controller(nav.saveState())
+        assertEquals("saved-success", restored.currentBackStackEntry!!.arguments!!.getString("id"))
+        assertTrue(restored.popBackStack())
+        val home = restored.currentBackStackEntry!!
+        assertEquals(Routes.Home, home.destination.route)
+        assertEquals("submitted-prompt-fingerprint", home.savedStateHandle.get<String>(SessionNavigationState.ConsumedHomeCreate))
+        home.savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = null
+        assertNull(home.savedStateHandle.get<String>(SessionNavigationState.ConsumedHomeCreate))
+    }
+
     @Test fun sharedPromptCreatesFreshEntryAndBackRestoresOriginalForm() = onMain {
         val nav = controller()
         nav.openCreateFromLaunch("original")
@@ -125,7 +139,7 @@ class NavigationActionsTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(test)
     }
 
-    private fun controller(): NavHostController {
+    private fun controller(saved: Bundle? = null): NavHostController {
         val nav = NavHostController(ApplicationProvider.getApplicationContext())
         val owner = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.RESUMED }
@@ -134,6 +148,7 @@ class NavigationActionsTest {
         nav.setViewModelStore(ViewModelStore())
         val navigator = ImmediateNavigator()
         nav.navigatorProvider.addNavigator(navigator)
+        saved?.let(nav::restoreState)
         nav.graph = nav.createGraph(startDestination = Routes.Home) {
             listOf(Routes.Home, Routes.Login, Routes.Sessions, Routes.Settings, Routes.Session, Routes.Create).forEach { path ->
                 addDestination(navigator.createDestination().apply {

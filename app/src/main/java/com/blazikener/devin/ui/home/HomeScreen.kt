@@ -34,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.SessionFilter
+import com.blazikener.devin.data.createFingerprint
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.*
@@ -54,6 +55,8 @@ fun HomeScreen(
     onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
     onCreateRecovery: () -> Unit,
+    consumedCreateFingerprint: String? = null,
+    onConsumedCreateHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -80,6 +83,16 @@ fun HomeScreen(
     var showModePicker by rememberSaveable { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
+    LaunchedEffect(consumedCreateFingerprint) {
+        consumedCreateFingerprint?.let { fingerprint ->
+            if (createFingerprint(prompt) == fingerprint) {
+                prompt = ""
+                modeChosen = false
+                showModePicker = false
+            }
+            onConsumedCreateHandled()
+        }
+    }
     LaunchedEffect(launch.error, recovery) { if (launch.error != null || recovery != null) scroll.scrollTo(0) }
 
     LaunchedEffect(Unit) {
