@@ -291,6 +291,20 @@ class CreateSessionViewModelTest {
     }
 
     @Test
+    fun matchingShareKeepsTheUnrelatedEditableDraftUntilTheUserEditsTheForm() {
+        val interrupted = CreateAttempt(createFingerprint(draft.prompt), 1)
+        val editable = draft.copy(prompt = "Unfinished work")
+        val form = editable.withCreateArguments(draft.prompt, null, listOf(interrupted))
+        val matching = listOf(interrupted).firstOrNull { it.matches(form.prompt) }
+
+        assertEquals(draft.prompt, form.prompt)
+        assertTrue(editable.shouldPreserveOnRecovery(matching))
+        assertFalse(draft.shouldPreserveOnRecovery(matching))
+        assertFalse(NewSessionDraft().shouldPreserveOnRecovery(matching))
+        assertFalse(editable.shouldPreserveOnRecovery(null))
+    }
+
+    @Test
     fun unrelatedSharedPromptDoesNotAppendSubmittedOrIdenticalText() {
         val interrupted = CreateAttempt(createFingerprint(draft.prompt), 1)
         val incoming = "New shared text"

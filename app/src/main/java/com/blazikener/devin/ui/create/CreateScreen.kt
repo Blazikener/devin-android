@@ -121,7 +121,11 @@ fun CreateScreen(
     var uploading by remember { mutableStateOf(0) }
 
     // Saved on every edit so the form survives Back, leaving the app, and process death.
-    LaunchedEffect(Unit) { if (recovered == null) g.settings.saveNewSessionDraft(form) }
+    LaunchedEffect(Unit) {
+        if (recovered == null && !g.settings.newSessionDraft().shouldPreserveOnRecovery(matching)) {
+            g.settings.saveNewSessionDraft(form)
+        }
+    }
     LaunchedEffect(recovered) { recovered?.let(onCreated) }
 
     LaunchedEffect(Unit) {
@@ -272,11 +276,18 @@ fun CreateScreen(
             )
             submission.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
-                vm.submit(form, settings.createAsUserId, draftVersion = g.settings.saveNewSessionDraft(form))
+                val version = form.takeUnless { g.settings.newSessionDraft().shouldPreserveOnRecovery(matching) }
+                    ?.let(g.settings::saveNewSessionDraft)
+                vm.submit(form, settings.createAsUserId, draftVersion = version)
             }, enabled = !busy && warning == null && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
                 Text("Start session")
             }
-            TextButton(onClick = { vm.clear(matching); form = defaults; failedUploads.clear() }, enabled = !busy && (form != defaults || failedUploads.isNotEmpty() || matching != null)) { Text("Clear") }
+            TextButton(onClick = {
+                val savedDraft = g.settings.newSessionDraft()
+                vm.clear(matching)
+                if (savedDraft.shouldPreserveOnRecovery(matching)) formState.value = savedDraft else form = defaults
+                failedUploads.clear()
+            }, enabled = !busy && (form != defaults || failedUploads.isNotEmpty() || matching != null)) { Text("Clear") }
         }
     }
 }

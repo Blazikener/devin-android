@@ -20,3 +20,6 @@ internal fun NewSessionDraft.withCreateArguments(
     }
     return if (modeOverride == null) draft else draft.copy(mode = modeOverride.takeUnless { it == DEFAULT_MODE_OVERRIDE })
 }
+
+internal fun NewSessionDraft.shouldPreserveOnRecovery(matching: CreateAttempt?): Boolean =
+    matching != null && matching.sessionId == null && !isEmpty && !matching.matches(prompt)
