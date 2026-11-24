@@ -23,6 +23,8 @@ data class NewSessionDraft(
     val repos: List<String> = emptyList(),
     @SerialName("playbook_id") val playbookId: String? = null,
     val attachments: List<DraftAttachment> = emptyList(),
+    // Idempotency marker for a Home/share argument already incorporated into this draft.
+    @SerialName("last_initial_prompt") val lastInitialPrompt: String? = null,
 ) {
     val isEmpty: Boolean
         get() = prompt.isBlank() && title.isBlank() && tags.isBlank() && acu.isBlank() && mode == null && repos.isEmpty() && playbookId == null && attachments.isEmpty()
