@@ -27,6 +27,9 @@ class Cache(context: Context) {
     suspend fun putSessions(key: String, v: List<Session>) = write("sessions_$key", ListSerializer(Session.serializer()), v)
     suspend fun messages(id: String) = read("msgs_$id", ListSerializer(SessionMessage.serializer()))
     suspend fun putMessages(id: String, v: List<SessionMessage>) = write("msgs_$id", ListSerializer(SessionMessage.serializer()), v)
+    // Null means no successful index has been saved; an empty list is an authoritative empty index.
+    suspend fun attachments(id: String) = read("attachments_$id", ListSerializer(SessionAttachment.serializer()))
+    suspend fun putAttachments(id: String, v: List<SessionAttachment>) = write("attachments_$id", ListSerializer(SessionAttachment.serializer()), v)
     suspend fun session(id: String) = read("session_$id", Session.serializer())
     suspend fun putSession(v: Session) = write("session_${v.id}", Session.serializer(), v)
 
