@@ -107,8 +107,11 @@ fun HomeScreen(
     }
     LaunchedEffect(launch.createdId) {
         launch.createdId?.let { id ->
-            prompt = ""
-            modeChosen = false
+            if (createFingerprint(prompt) == launch.createdFingerprint) {
+                prompt = ""
+                modeChosen = false
+                showModePicker = false
+            }
             onOpen(id) // Never wait for the decorative turn to finish.
             launcher.consumeCreated(id)
         }
@@ -151,7 +154,7 @@ fun HomeScreen(
                             prompt = attempt.submitted?.request?.prompt.orEmpty(),
                             hasSession = attempt.sessionId != null,
                             canRetry = attempt.submitted != null && prompt.isNotBlank() && attempt.matches(prompt) && !busy,
-                            onOpen = { attempt.sessionId?.let(launcher::openSaved) },
+                            onOpen = { launcher.openSaved(attempt) },
                             onCheck = { keyboard?.hide(); onCreateRecovery() },
                             onDismiss = { launcher.dismiss(attempt) },
                             onRetry = { keyboard?.hide(); launcher.retryAnyway(attempt) },

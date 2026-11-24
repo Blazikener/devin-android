@@ -6,6 +6,7 @@ import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.data.CreateResult
 import com.blazikener.devin.data.CreateSessionGate
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.createFingerprint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +16,7 @@ internal data class HomeLaunchState(
     val busy: Boolean = false,
     val error: String? = null,
     val createdId: String? = null,
+    val createdFingerprint: String? = null,
     val confirmation: CreateAttempt? = null,
 )
 
@@ -41,7 +43,7 @@ internal class HomeLaunchViewModel(private val gate: CreateSessionGate) : ViewMo
             try {
                 val result = if (retry == null) gate.submit(request) else gate.retryAnyway(retry)
                 _state.value = when (result) {
-                    is CreateResult.Open -> HomeLaunchState(createdId = result.sessionId)
+                    is CreateResult.Open -> HomeLaunchState(createdId = result.sessionId, createdFingerprint = createFingerprint(request.prompt))
                     is CreateResult.NeedsConfirmation -> HomeLaunchState(confirmation = result.attempt)
                     is CreateResult.Failed -> HomeLaunchState(error = result.message)
                     CreateResult.Busy -> HomeLaunchState(error = "Another session is starting. Please wait.")
@@ -66,8 +68,9 @@ internal class HomeLaunchViewModel(private val gate: CreateSessionGate) : ViewMo
         if (attempt != null) viewModelScope.launch { gate.clear(attempt) }
     }
 
-    fun openSaved(id: String) {
-        if (!_state.value.busy) _state.value = HomeLaunchState(createdId = id)
+    fun openSaved(attempt: CreateAttempt) {
+        val id = attempt.sessionId ?: return
+        if (!_state.value.busy) _state.value = HomeLaunchState(createdId = id, createdFingerprint = attempt.fingerprint)
     }
 
     fun consumeCreated(id: String) {

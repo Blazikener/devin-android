@@ -157,9 +157,19 @@ class HomeLaunchViewModelTest {
         vm.start(CreateSessionRequest("Known task"))
         runCurrent()
         assertEquals("known", vm.state.value.createdId)
+        assertEquals(saved.fingerprint, vm.state.value.createdFingerprint)
         vm.consumeCreated("known")
         runCurrent()
         assertTrue(vm.attempts.value.isEmpty())
+    }
+
+    @Test fun openingRecoveryIdentifiesOnlyTheOriginalDraftForCleanup() = runTest {
+        val saved = CreateAttempt(createFingerprint("Original task"), 1, sessionId = "known")
+        val vm = model(FakeAttempts(listOf(saved))) { error("Must not create again") }
+        vm.openSaved(saved)
+        assertEquals("known", vm.state.value.createdId)
+        assertEquals(createFingerprint("Original task"), vm.state.value.createdFingerprint)
+        assertNotEquals(createFingerprint("Unrelated Home draft"), vm.state.value.createdFingerprint)
     }
 
     private class FakeAttempts(private var records: List<CreateAttempt> = emptyList()) : CreateAttemptStore {
