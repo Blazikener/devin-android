@@ -122,6 +122,8 @@ fun SessionsScreen(
     var applied by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
+    val listIdentity = "${ui.key.mine}|${ui.key.archived}|${ui.filter.name}|${ui.query}"
+    var previousListIdentity by rememberSaveable { mutableStateOf(listIdentity) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     LaunchedEffect(vm, initialFilter, initialSearch) {
@@ -159,7 +161,14 @@ fun SessionsScreen(
             layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 5 } == true
         }
     }
-    LaunchedEffect(ui.key, ui.filter, ui.query) { listState.scrollToItem(0) }
+    LaunchedEffect(listIdentity) {
+        // Effects restart after a saved root re-enters composition. Only a real filter/query/owner
+        // change should reset the independently restored LazyListState.
+        if (previousListIdentity != listIdentity) {
+            previousListIdentity = listIdentity
+            listState.scrollToItem(0)
+        }
+    }
     val canLoadMore = feed.hasMore && !feed.loadingMore && !feed.refreshing && feed.error == null && feed.pageError == null
     val waitingForMore = feed.loadingMore || canLoadMore ||
         (feed.hasMore && feed.refreshing && feed.error == null && feed.pageError == null)
