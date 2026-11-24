@@ -202,9 +202,7 @@ fun SessionScreen(
                         }
                         // The API index doesn't contain a message id; never invent message ownership.
                         // Files without a matching reference remain easy to find in a named latest-files group.
-                        val referenced = ui.files.rows.groupBy { a -> ui.messages.lastOrNull { m ->
-                            m.message.contains(a.url) || m.message.contains(a.name)
-                        }?.eventId }
+                        val referenced = ui.files.rows.groupBy { a -> a.firstLinkedMessageId(ui.messages) }
                         val unreferenced = referenced[null].orEmpty()
                         if (unreferenced.isNotEmpty()) item(key = "shared-files") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
