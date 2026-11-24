@@ -26,10 +26,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
@@ -78,6 +80,7 @@ fun SessionScreen(
     val clipboard = LocalClipboardManager.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val latestInput by rememberUpdatedState(input)
     val attachFocus = remember { FocusRequester() }
     var restoreAttachFocus by rememberSaveable { mutableStateOf(false) }
@@ -105,6 +108,10 @@ fun SessionScreen(
     }
     LaunchedEffect(restoreAttachFocus, tab) {
         if (restoreAttachFocus && tab == SessionTab.Chat) {
+            // The old input focus may already be on Attach while TalkBack was on
+            // the removed chip. Reissue a real focus gain after the list changes.
+            focusManager.clearFocus(force = true)
+            withFrameNanos { }
             attachFocus.requestFocus()
             restoreAttachFocus = false
         }
@@ -253,7 +260,10 @@ fun SessionScreen(
                 }
                 if (uploads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    uploads.forEach { upload -> AttachmentUploadChip(upload) { vm.uploads.remove(upload.id) } }
+                    uploads.forEach { upload -> AttachmentUploadChip(upload) {
+                        vm.uploads.remove(upload.id)
+                        restoreAttachFocus = true
+                    } }
                 }
                 Composer(input, { input = it }, settings.enterToSend, canSend,
                     hint = if (s?.state == SessionState.NeedsYou) "Reply to Devin…" else "Message Devin…",
@@ -351,7 +361,8 @@ fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, ca
     val actions = KeyboardActions(onSend = { if (canSend) onSend() })
     val attach: @Composable () -> Unit = {
         DevinIconButton("Attach context", Icons.Outlined.Add, onAttach,
-            modifier = if (attachFocus != null) Modifier.focusRequester(attachFocus) else Modifier)
+            modifier = if (attachFocus != null) Modifier.focusRequester(attachFocus)
+                .focusProperties { canFocus = true } else Modifier)
     }
     val send: @Composable () -> Unit = {
         FilledIconButton(onSend, Modifier.size(48.dp).testTag("send"), enabled = canSend) {
