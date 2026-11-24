@@ -6,397 +6,270 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.blazikener.devin.Launch
 import com.blazikener.devin.initialLaunch
-import com.blazikener.devin.data.ApiException
-import com.blazikener.devin.data.CreateAttempt
-import com.blazikener.devin.data.CreateAttemptStore
-import com.blazikener.devin.data.CreateSessionRequest
-import com.blazikener.devin.data.NewSessionDraft
-import com.blazikener.devin.data.Session
-import com.blazikener.devin.data.versionKey
+import com.blazikener.devin.savedSessionOnLaunch
+import com.blazikener.devin.data.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.*
 import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CreateSessionViewModelTest {
-    private val store = ViewModelStore()
-    private val draft = NewSessionDraft(prompt = "Start a session")
-    private val attempts = FakeCreateAttempts().also { it.draft = draft }
+    private val models = ViewModelStore()
+    private val draft = NewSessionDraft(prompt = "Original task", draftVersion = "a", mode = "fast")
+    private val attempts = FakeAttempts(draft)
+    @Before fun setUp() = Dispatchers.setMain(StandardTestDispatcher())
+    @After fun tearDown() { models.clear(); Dispatchers.resetMain() }
+    private fun gate(create: suspend (CreateSessionRequest) -> Session) = CreateSessionGate(attempts, create)
+    private fun model(gate: CreateSessionGate, prompt: String = draft.prompt, key: String = "main") =
+        ViewModelProvider(models, viewModelFactory {
+            initializer { CreateSessionViewModel(gate, prompt) { it.versionKey in attempts.consumed } }
+        })[key, CreateSessionViewModel::class.java]
 
-    @Before
-    fun setUp() = Dispatchers.setMain(StandardTestDispatcher())
-
-    @After
-    fun tearDown() {
-        store.clear()
-        Dispatchers.resetMain()
-    }
-
-    private fun model(createSession: suspend (CreateSessionRequest) -> Session) =
-        ViewModelProvider(store, viewModelFactory {
-            initializer { CreateSessionViewModel(createSession, attempts) }
-        })[CreateSessionViewModel::class.java]
-
-    @Test
-    fun blankAcuUsesConfiguredDefault() = runTest {
-        var request: CreateSessionRequest? = null
-        model { request = it; Session("default-acu") }.submit(draft, null, defaultAcuLimit = 20)
-        runCurrent()
-        assertEquals(20, request?.maxAcuLimit)
-    }
-
-    @Test
-    fun explicitAcuOverridesConfiguredDefault() = runTest {
-        var request: CreateSessionRequest? = null
-        model { request = it; Session("explicit-acu") }.submit(draft.copy(acu = "7"), null, defaultAcuLimit = 20)
-        runCurrent()
-        assertEquals(7, request?.maxAcuLimit)
-    }
-
-    @Test
-    fun invalidAcuNeverTurnsIntoAnUnlimitedSession() = runTest {
-        var requests = 0
-        val vm = model(createSession = { requests++; Session("unexpected") })
-        for (acu in listOf("0", "-5", "oops", "999999999999")) {
-            vm.submit(draft.copy(acu = acu), null)
-            runCurrent()
-            assertFalse(vm.ui.value.submitting)
-            assertTrue(vm.ui.value.error.orEmpty().contains("ACU limit"))
-        }
-        assertEquals(0, requests)
-    }
-
-    @Test
-    fun recreatedScreenKeepsTheOriginalSubmissionAndResult() = runTest {
+    @Test fun persistsBeforePostAndIgnoresDuplicateTapsWhileStarting() = runTest {
         val response = CompletableDeferred<Session>()
-        var requests = 0
-        val original = model(createSession = { requests++; response.await() })
-        original.submit(draft, null)
-        runCurrent()
-
-        val recreated = model(createSession = { error("Unexpected new request") })
-        assertSame(original, recreated)
-        assertTrue(recreated.ui.value.submitting)
-        recreated.submit(draft, null)
-        runCurrent()
-        assertEquals(1, requests)
-        assertEquals(draft, attempts.draft)
-
-        response.complete(Session("original-session"))
-        runCurrent()
-        assertEquals("original-session", recreated.ui.value.sessionId)
-        assertEquals(NewSessionDraft(), attempts.draft)
-
-        recreated.submit(draft, null)
-        runCurrent()
-        assertEquals(1, requests)
-    }
-
-    @Test
-    fun failedSubmissionReleasesGuardAndKeepsDraftUntilRetrySucceeds() = runTest {
-        var requests = 0
-        val vm = model(
-            createSession = {
-                if (++requests == 1) throw ApiException(400, "Rejected")
-                Session("retry-session")
-            },
-        )
-
+        var calls = 0
+        val vm = model(gate {
+            calls++
+            assertEquals(draft, attempts.records.single().submitted?.draft)
+            response.await()
+        })
+        vm.submit(draft, null)
         vm.submit(draft, null)
         runCurrent()
-        assertFalse(vm.ui.value.submitting)
-        assertEquals("Rejected", vm.ui.value.error)
-        assertFalse(vm.ui.value.uncertain)
-        assertNull(attempts.read())
-        assertEquals(draft, attempts.draft)
-
-        vm.submit(draft, null)
+        assertEquals(1, calls)
+        assertTrue(vm.ui.value.submitting)
+        response.complete(Session("created"))
         runCurrent()
-        assertEquals("retry-session", vm.ui.value.sessionId)
-        assertEquals(NewSessionDraft(), attempts.draft)
+        assertEquals("created", vm.ui.value.sessionId)
+        assertEquals(setOf("a"), attempts.consumed)
+        assertNull(attempts.editable)
     }
 
-    @Test
-    fun homeModeOverridesDraftModeInFormAndRequest() = runTest {
-        val savedDraft = NewSessionDraft(prompt = "Existing draft", mode = "fast")
-        val selectedMode = createModeOverride(modeChosen = true, chosenMode = "ultra")
-        val form = savedDraft.withCreateArguments("From Home", selectedMode)
-        var request: CreateSessionRequest? = null
-        val vm = model(
-            createSession = { request = it; Session("new-session") },
-        )
-
-        assertEquals("ultra", form.mode)
-        vm.submit(form, null)
+    @Test fun pendingRestoresAcrossProcessDeathAndOrdinaryStartDoesNotPost() = runTest {
+        var calls = 0
+        model(gate { calls++; throw ApiException(408, "Timeout") }).submit(draft, null)
         runCurrent()
-        assertEquals("ultra", request?.devinMode)
-        assertEquals("Existing draft\n\nFrom Home", request?.prompt)
-    }
-
-    @Test
-    fun explicitDefaultClearsDraftModeButNoSelectionPreservesIt() = runTest {
-        val savedDraft = draft.copy(mode = "fast")
-        val explicitDefault = createModeOverride(modeChosen = true, chosenMode = null)
-        val noSelection = createModeOverride(modeChosen = false, chosenMode = null)
-        var request: CreateSessionRequest? = null
-        val vm = model(
-            createSession = { request = it; Session("new-session") },
-        )
-
-        assertEquals("fast", savedDraft.withCreateArguments(null, noSelection).mode)
-        val form = savedDraft.withCreateArguments(null, explicitDefault)
-        assertEquals(null, form.mode)
-        vm.submit(form, null)
-        runCurrent()
-        assertEquals(CreateSessionRequest(prompt = draft.prompt), request)
-    }
-
-    @Test
-    fun restoredPendingCreateBlocksOrdinarySubmitUntilExplicitRetry() = runTest {
-        var requests = 0
-        val original = model {
-            assertEquals(CreateAttempt.Pending, attempts.read())
-            assertEquals(draft, attempts.draft)
-            requests++
-            awaitCancellation()
-        }
-        original.submit(draft, null)
-        runCurrent()
-        store.clear()
-
-        val restored = model { requests++; Session("retry-session") }
+        val restored = model(gate { calls++; Session("duplicate") }, key = "restored")
         assertTrue(restored.ui.value.uncertain)
         restored.submit(draft, null)
         runCurrent()
-        assertEquals(1, requests)
-        assertEquals(CreateAttempt.Pending, attempts.read())
-
-        restored.submit(draft, null, confirmedRetry = true)
-        restored.submit(draft, null, confirmedRetry = true)
-        runCurrent()
-        assertEquals(2, requests)
-        assertEquals("retry-session", restored.ui.value.sessionId)
-        assertEquals(CreateAttempt.Created("retry-session"), attempts.read())
-        restored.acknowledgeCreated("retry-session")
-        assertNull(attempts.read())
+        assertEquals(1, calls)
+        assertTrue(restored.ui.value.needsRetryConfirmation(draft))
     }
 
-    @Test
-    fun restoredKnownResultOpensWithoutAnotherRequest() = runTest {
-        attempts.write(CreateAttempt.Created("original-session"), NewSessionDraft())
-        val restored = model { error("Unexpected new request") }
-        assertEquals("original-session", restored.ui.value.sessionId)
-        restored.submit(draft, null)
+    @Test fun retryUsesExactSnapshotIncludingResolvedDefaultAndCreateAsUser() = runTest {
+        val sent = mutableListOf<CreateSessionRequest>()
+        val original = draft.copy(attachments = listOf(DraftAttachment("context.txt", "https://files.test/context")))
+        val vm = model(gate { request ->
+            sent += request
+            if (sent.size == 1) throw ApiException(503, "Uncertain") else Session("retried")
+        })
+        vm.submit(original, "original-user", defaultAcuLimit = 20)
         runCurrent()
-        restored.acknowledgeCreated("original-session")
-        assertNull(attempts.read())
+        assertEquals("", attempts.records.single().submitted?.draft?.acu)
+        assertEquals(20, attempts.records.single().submitted?.request?.maxAcuLimit)
+        assertEquals("", attempts.editable?.acu)
+        vm.submit(draft.copy(prompt = "New editor contents", acu = "99", mode = "ultra"), "different-user", confirmedRetry = true, defaultAcuLimit = 30)
+        runCurrent()
+        assertEquals(sent.first(), sent.last())
+        assertEquals("original-user", sent.last().createAsUserId)
+        assertEquals("retried", vm.ui.value.sessionId)
     }
 
-    @Test
-    fun failedDurableWritePreventsCreateRequest() = runTest {
-        attempts.failWrites = true
-        val vm = model { error("Unexpected new request") }
-        vm.submit(draft, null)
-        runCurrent()
-        assertEquals("Couldn't save the draft. The session was not started.", vm.ui.value.error)
-        assertNull(attempts.read())
-    }
-
-    @Test
-    fun ambiguousFailureKeepsWarningAndBlocksOrdinaryRetry() = runTest {
-        for (failure in listOf(IOException("Offline"), ApiException(500, "Server error"), ApiException(408, "Timed out"))) {
-            store.clear()
-            attempts.write(null)
-            var requests = 0
-            val vm = model { requests++; throw failure }
-            vm.submit(draft, null)
-            runCurrent()
-            assertTrue(vm.ui.value.uncertain)
-            assertEquals(CreateAttempt.Pending, attempts.read())
-            assertEquals(draft, attempts.draft)
-            vm.submit(draft, null)
-            runCurrent()
-            assertEquals(1, requests)
+    @Test fun invalidAcuAndBlankTaskNeverPost() = runTest {
+        var calls = 0
+        val vm = model(gate { calls++; Session("invalid") })
+        listOf("0", "-1", "abc", "1.2", "2147483648").forEach {
+            vm.submit(draft.copy(acu = it), null)
+            assertNotNull(vm.ui.value.error)
         }
-    }
-
-    @Test
-    fun incomingSharedPromptTakesPriorityOverCompletedSession() = runTest {
-        attempts.write(CreateAttempt.Created("old-session"), NewSessionDraft())
-        attempts.discardCompletedForIncomingPrompt("New shared text")
-        val vm = model { error("Unexpected new request") }
-        assertNull(vm.ui.value.sessionId)
-        assertFalse(vm.ui.value.uncertain)
-    }
-
-    @Test
-    fun restoredCreateRouteWithOriginalPromptKeepsCompletedSession() = runTest {
-        attempts.write(CreateAttempt.Created("original-session"), NewSessionDraft())
-        val originalLaunch = Launch.NewSession("Original shared text")
-        assertNull(initialLaunch(launchPending = false) { originalLaunch })
-        assertEquals(originalLaunch, initialLaunch(launchPending = true) { originalLaunch })
-        assertEquals(originalLaunch, initialLaunch(launchPending = null) { originalLaunch })
-        val restored = model { error("Unexpected new request") }
-        assertEquals("original-session", restored.ui.value.sessionId)
-    }
-
-    @Test
-    fun incomingSharedPromptDoesNotDiscardUncertainAttempt() = runTest {
-        attempts.write(CreateAttempt.Pending, draft)
-        attempts.discardCompletedForIncomingPrompt("New shared text")
-        val vm = model { error("Unexpected new request") }
-        assertTrue(vm.ui.value.uncertain)
-        assertEquals(CreateAttempt.Pending, attempts.read())
-    }
-
-    @Test
-    fun acknowledgingOldResultDoesNotClearANewerDraftOrAttempt() = runTest {
-        attempts.write(CreateAttempt.Created("old-session"), draft)
-        val newer = draft.copy(prompt = "Newer shared task")
-        attempts.draft = newer
-        attempts.write(CreateAttempt.Pending, newer)
-        attempts.acknowledgeCreated("old-session")
-        assertEquals(newer, attempts.draft)
-        assertEquals(CreateAttempt.Pending, attempts.read())
-    }
-
-    @Test
-    fun clearingAfterCheckingSessionsResolvesPendingWarning() = runTest {
-        attempts.write(CreateAttempt.Pending, draft)
-        val vm = model { Session("new-task") }
-        assertTrue(vm.ui.value.uncertain)
-        vm.resolveUncertain(draft)
+        vm.submit(draft.copy(prompt = "   "), null)
         runCurrent()
-        assertFalse(vm.ui.value.uncertain)
-        assertNull(attempts.read())
-        vm.submit(draft.copy(prompt = "Unrelated new task"), null)
-        runCurrent()
-        assertEquals("new-task", vm.ui.value.sessionId)
+        assertEquals(0, calls)
+        assertTrue(attempts.records.isEmpty())
     }
 
-    @Test
-    fun alreadyConsumedVersionCannotBeSubmittedAgain() = runTest {
-        attempts.write(CreateAttempt.Created("original"), draft)
-        val vm = model { error("Unexpected new request") }
-        vm.acknowledgeCreated("original")
-        store.clear()
-        val restored = model { error("Unexpected new request") }
-        restored.submit(draft, null)
-        runCurrent()
-        assertTrue(restored.ui.value.error.orEmpty().contains("already started"))
-    }
-
-    @Test
-    fun restoredRetryUsesSubmittedSnapshotNotTheNewerEditableTask() = runTest {
-        val submitted = draft.copy(acu = "20", mode = "fast", draftVersion = "request")
-        attempts.write(CreateAttempt.Pending, submitted)
-        var request: CreateSessionRequest? = null
-        val restored = model { request = it; Session("retried-original") }
-        restored.submit(draft.copy(prompt = "New shared task", acu = "7"), null, confirmedRetry = true, defaultAcuLimit = 99)
-        runCurrent()
-        assertEquals(submitted.prompt, request?.prompt)
-        assertEquals(20, request?.maxAcuLimit)
-        assertEquals("fast", request?.devinMode)
-    }
-
-    @Test
-    fun anOlderWarningCannotResolveANewerAttempt() = runTest {
-        attempts.write(CreateAttempt.Pending, draft)
-        val older = model { error("Unexpected request") }
-        attempts.write(null, draft)
-        val newer = draft.copy(prompt = "Newer uncertain task")
-        attempts.write(CreateAttempt.Pending, newer)
-        older.resolveUncertain(draft)
-        runCurrent()
-        assertEquals(CreateAttempt.Pending, attempts.read())
-        assertTrue(older.ui.value.uncertain)
-        assertEquals(newer, older.ui.value.pendingDraft)
-    }
-
-    @Test
-    fun oldWarningRetriesItsSnapshotAfterAnUnrelatedResultWasAcknowledged() = runTest {
-        val submitted = draft.copy(acu = "20", mode = "fast", draftVersion = "request")
-        attempts.write(CreateAttempt.Pending, submitted)
+    @Test fun explicitAcuAndSetupAreEncodedWithoutLosingSelections() = runTest {
         var sent: CreateSessionRequest? = null
-        val vm = model { request -> sent = request; Session("retried-original") }
-        val other = draft.copy(prompt = "Other request", draftVersion = "other")
-        attempts.write(CreateAttempt.Pending, other)
-        attempts.write(CreateAttempt.Created("other-session"), other)
-        attempts.acknowledgeCreated("other-session")
-        vm.submit(other, null, confirmedRetry = true)
+        val form = draft.copy(prompt = " task ", acu = "7", title = " Title ", tags = "one, two,one",
+            repos = listOf("org/repo"), playbookId = "playbook",
+            attachments = listOf(DraftAttachment("context", "https://files.test/context")))
+        model(gate { sent = it; Session("created") }).submit(form, "user", defaultAcuLimit = 20)
         runCurrent()
-        assertEquals(submitted.prompt, sent?.prompt)
-        assertEquals(20, sent?.maxAcuLimit)
+        assertEquals("task", sent?.prompt)
+        assertEquals("Title", sent?.title)
+        assertEquals(listOf("one", "two"), sent?.tags)
+        assertEquals(7, sent?.maxAcuLimit)
+        assertEquals(form.repos, sent?.repos)
+        assertEquals("playbook", sent?.playbookId)
+        assertEquals(listOf("https://files.test/context"), sent?.attachmentUrls)
         assertEquals("fast", sent?.devinMode)
     }
 
-    @Test
-    fun unrelatedPromptCanStartWhileOldWarningStillRequiresConfirmationForOriginal() = runTest {
-        attempts.write(CreateAttempt.Pending, draft)
-        val newer = draft.copy(prompt = "An unrelated task", draftVersion = "unrelated")
-        var sent: CreateSessionRequest? = null
-        val vm = model { request -> sent = request; Session("new") }
-        assertTrue(vm.ui.value.needsRetryConfirmation(draft))
-        assertFalse(vm.ui.value.needsRetryConfirmation(newer))
-        vm.submit(newer, null)
+    @Test fun knownResultRestoresWithoutAnotherPostAndOnlyMatchingPromptOpensIt() = runTest {
+        val record = CreateAttempt(createFingerprint(draft.prompt), 1, sessionId = "known")
+        attempts.records = listOf(record)
+        val g = gate { error("Unexpected POST") }
+        assertEquals("known", model(g).ui.value.sessionId)
+        assertNull(model(g, "different task", "other").ui.value.sessionId)
+        model(g).acknowledgeCreated("known")
         runCurrent()
-        assertEquals(newer.prompt, sent?.prompt)
-        assertEquals("new", vm.ui.value.sessionId)
+        assertTrue(attempts.records.isEmpty())
     }
 
-    @Test
-    fun dismissingWarningKeepsEditableDraftAndAllowsNewTask() = runTest {
-        attempts.write(CreateAttempt.Pending, draft)
-        val vm = model { Session("new") }
-        vm.resolveUncertain(draft)
+    @Test fun definitiveRejectionAllowsNormalRetry() = runTest {
+        var calls = 0
+        val vm = model(gate { if (++calls == 1) throw ApiException(422, "Rejected") else Session("valid") })
+        vm.submit(draft, null)
         runCurrent()
         assertFalse(vm.ui.value.uncertain)
-        assertEquals(draft, attempts.draft)
-        assertNull(attempts.read())
-        vm.submit(draft.copy(prompt = "Another task"), null)
+        assertEquals(draft, attempts.editable)
+        vm.submit(draft, null)
         runCurrent()
-        assertEquals("new", vm.ui.value.sessionId)
+        assertEquals(2, calls)
+        assertEquals("valid", vm.ui.value.sessionId)
     }
 
-    private class FakeCreateAttempts : CreateAttemptStore {
-        private var attempt: CreateAttempt? = null
-        private var pendingSnapshot: NewSessionDraft? = null
-        var draft: NewSessionDraft? = null
-        var failWrites = false
-        private val consumed = mutableSetOf<String>()
-
-        override fun read() = attempt
-        override fun pendingDraft() = pendingSnapshot.takeIf { attempt == CreateAttempt.Pending }
-        override fun isConsumed(draft: NewSessionDraft) = draft.versionKey in consumed
-
-        override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean {
-            if (failWrites) return false
-            if (attempt == null && draft != null && pendingSnapshot?.versionKey != draft.versionKey) return false
-            this.attempt = attempt
-            if (attempt is CreateAttempt.Created && draft != null) {
-                consumed += draft.versionKey
-                if (this.draft?.versionKey == draft.versionKey) this.draft = NewSessionDraft()
-            } else if (attempt == CreateAttempt.Pending && draft != null) pendingSnapshot = draft
-            return true
+    @Test fun ambiguousStatusesAlwaysRequireAnExplicitRetry() = runTest {
+        listOf(408, 500, 503).forEach { code ->
+            attempts.records = emptyList()
+            var calls = 0
+            val vm = model(gate { calls++; throw ApiException(code, "Ambiguous") }, key = "code-$code")
+            vm.submit(draft, null)
+            runCurrent()
+            vm.submit(draft, null)
+            runCurrent()
+            assertEquals(1, calls)
+            assertTrue(vm.ui.value.uncertain)
         }
+    }
 
-        override fun acknowledgeCreated(sessionId: String) {
-            if (attempt == CreateAttempt.Created(sessionId)) attempt = null
+    @Test fun unrelatedStartsAndAcknowledgementsKeepOlderSnapshots() = runTest {
+        var originalCalls = 0
+        val sent = mutableListOf<CreateSessionRequest>()
+        val g = gate { request ->
+            sent += request
+            if (request.prompt == draft.prompt && ++originalCalls == 1) throw ApiException(500, "Uncertain")
+            Session(request.prompt)
+        }
+        val original = model(g)
+        original.submit(draft.copy(acu = "20"), "original")
+        runCurrent()
+        val other = draft.copy(prompt = "Unrelated task", draftVersion = "b", acu = "5")
+        val newer = model(g, other.prompt, "newer")
+        assertFalse(newer.ui.value.needsRetryConfirmation(other))
+        newer.submit(other, "other")
+        runCurrent()
+        newer.acknowledgeCreated(other.prompt)
+        runCurrent()
+        assertEquals(draft.prompt, attempts.records.single().submitted?.request?.prompt)
+        original.submit(other, "other", confirmedRetry = true)
+        runCurrent()
+        assertEquals(sent.first(), sent.last())
+        assertEquals(2, originalCalls)
+    }
+
+    @Test fun dismissedWarningResurfacesWithoutPostingAndClearOnlyRemovesItsAttempt() = runTest {
+        var calls = 0
+        val g = gate { calls++; throw ApiException(500, "Uncertain") }
+        val vm = model(g)
+        vm.submit(draft, null)
+        runCurrent()
+        vm.dismissWarning()
+        runCurrent()
+        assertFalse(vm.ui.value.uncertain)
+        assertTrue(attempts.records.single().dismissed)
+        vm.submit(draft, null)
+        runCurrent()
+        assertEquals(1, calls)
+        assertTrue(vm.ui.value.uncertain)
+        g.submit(CreateSessionRequest(prompt = "Different task"))
+        vm.resolveUncertain(draft)
+        runCurrent()
+        assertEquals(1, attempts.records.size)
+        assertTrue(attempts.records.single().matches("Different task"))
+        assertEquals(draft, attempts.editable)
+    }
+
+    @Test fun rejectedRetryPreservesTheEarlierUncertainAttempt() = runTest {
+        var calls = 0
+        val vm = model(gate { throw ApiException(if (++calls == 1) 500 else 422, "Failure") })
+        vm.submit(draft, null)
+        runCurrent()
+        val previous = attempts.records.single()
+        vm.submit(draft, null, confirmedRetry = true)
+        runCurrent()
+        assertEquals(previous, attempts.records.single())
+        assertTrue(vm.ui.value.uncertain)
+    }
+
+    @Test fun sharedGateAllowsOnlyOneInFlightCallAcrossEntryPoints() = runTest {
+        val response = CompletableDeferred<Session>()
+        var calls = 0
+        val g = gate { calls++; response.await() }
+        model(g).submit(draft, null)
+        runCurrent()
+        assertEquals(CreateResult.Busy, g.submit(CreateSessionRequest(prompt = "Home task")))
+        assertEquals(1, calls)
+        response.complete(Session("created"))
+        runCurrent()
+    }
+
+    @Test fun failedPersistenceAndConsumedDraftsNeverPost() = runTest {
+        var calls = 0
+        val vm = model(gate { calls++; Session("invalid") })
+        attempts.failWrites = true
+        vm.submit(draft, null)
+        runCurrent()
+        assertEquals(0, calls)
+        assertNotNull(vm.ui.value.error)
+        attempts.failWrites = false
+        attempts.consumed += draft.versionKey
+        vm.submit(draft, null)
+        runCurrent()
+        assertEquals(0, calls)
+    }
+
+    @Test fun cancellationLeavesDurableRecoveryWithoutAFalseStartingState() = runTest {
+        val g = gate { awaitCancellation() }
+        model(g).submit(draft, null)
+        runCurrent()
+        models.clear()
+        runCurrent()
+        assertFalse(g.inFlight.value)
+        assertNotNull(attempts.records.single().submitted)
+        assertTrue(model(gate { error("Unexpected POST") }).ui.value.uncertain)
+    }
+
+    @Test fun launchRecoveryDoesNotOverrideSharesDeepLinksOrAnExistingDetail() {
+        val records = listOf(CreateAttempt(createFingerprint("task"), 1, sessionId = "known"))
+        assertEquals("known", savedSessionOnLaunch(null, "home", records))
+        assertNull(savedSessionOnLaunch(Launch.NewSession("new task"), "home", records))
+        assertNull(savedSessionOnLaunch(Launch.OpenSession("linked"), "home", records))
+        assertNull(savedSessionOnLaunch(null, "settings", records))
+        assertNull(initialLaunch(false) { error("Consumed launch replayed") })
+        assertEquals(Launch.NewSession("waiting"), initialLaunch(true) { Launch.NewSession("waiting") })
+    }
+
+    private class FakeAttempts(var editable: NewSessionDraft?) : CreateAttemptStore {
+        var records = emptyList<CreateAttempt>()
+        val consumed = mutableSetOf<String>()
+        var failWrites = false
+        override fun read() = records
+        override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?): Boolean {
+            if (failWrites) return false
+            records = attempts
+            if (consumeDraftVersion != null) {
+                consumed += consumeDraftVersion
+                if (editable?.versionKey == consumeDraftVersion) editable = null
+            }
+            return true
         }
     }
 }

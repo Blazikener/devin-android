@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -18,7 +19,12 @@ class DraftOwnershipTest {
     private lateinit var store: SettingsStore
     private val original = NewSessionDraft(prompt = "Original task", draftVersion = "original")
     private val newer = NewSessionDraft(prompt = "New shared task", draftVersion = "newer")
-
+    private fun pending(draft: NewSessionDraft, acu: Int? = null) = CreateAttempt(
+        createFingerprint(draft.prompt), 1,
+        submitted = CreateSnapshot(draft.toCreateRequest(null).let {
+            if (acu == null) it else it.copy(maxAcuLimit = acu)
+        }, draft, draft.versionKey),
+    )
     @Before fun setup() { clean(); store = SettingsStore(context) }
     @After fun clean() {
         listOf("settings", "drafts", "outbox", "pins").forEach {
@@ -28,9 +34,10 @@ class DraftOwnershipTest {
 
     @Test fun olderSuccessNeverDeletesNewerSavedShare() = runBlocking {
         store.saveNewSessionDraft(original)
-        store.createAttempts.write(CreateAttempt.Pending, original)
+        val attempt = pending(original)
+        store.createAttempts.write(listOf(attempt))
         store.saveNewSessionDraft(newer)
-        store.createAttempts.write(CreateAttempt.Created("session"), original)
+        store.createAttempts.write(listOf(attempt.copy(sessionId = "session", submitted = null)), original.versionKey)
         assertEquals(newer, store.newSessionDraft())
         assertTrue(store.wasNewSessionDraftConsumed(original))
         assertFalse(store.wasNewSessionDraftConsumed(newer))
@@ -42,8 +49,7 @@ class DraftOwnershipTest {
         assertTrue(store.wasNewSessionDraftConsumed(original))
         assertFalse(store.hasNewSessionDraft())
         store.saveNewSessionDraft(newer)
-        store.createAttempts.write(CreateAttempt.Pending, newer)
-        store.createAttempts.write(CreateAttempt.Created("session"), newer)
+        store.createAttempts.write(listOf(pending(newer).copy(sessionId = "session", submitted = null)), newer.versionKey)
         assertTrue(store.wasNewSessionDraftConsumed(newer))
         assertFalse(store.hasNewSessionDraft())
         val independent = original.copy(draftVersion = "independent")
@@ -52,19 +58,21 @@ class DraftOwnershipTest {
         assertEquals(independent, store.newSessionDraft())
     }
 
-    @Test fun delayedPendingWriteAndOldResultDoNotReplaceNewerWork() = runBlocking {
+    @Test fun multipleSnapshotsSurviveRestoreRetryAndStaleAcknowledgement() = runBlocking {
         store.saveNewSessionDraft(newer)
-        store.createAttempts.write(CreateAttempt.Pending, original)
+        val older = pending(original, acu = 20)
+        val recent = pending(newer)
+        store.createAttempts.write(listOf(recent, older))
+        assertEquals(listOf(recent, older), SettingsStore(context).createAttempts.read())
+        var sent: CreateSessionRequest? = null
+        val gate = CreateSessionGate(store.createAttempts, { sent = it; Session("old-session") })
+        assertEquals(CreateResult.Open("old-session"), gate.retryAnyway(older))
+        assertEquals(20, sent?.maxAcuLimit)
+        assertEquals(original.prompt, sent?.prompt)
         assertEquals(newer, store.newSessionDraft())
-        assertEquals(original, SettingsStore(context).createAttempts.pendingDraft())
-        assertFalse(store.createAttempts.write(null, newer))
-        assertTrue(store.createAttempts.write(null, original))
-        store.createAttempts.write(CreateAttempt.Pending, newer)
-        store.createAttempts.write(CreateAttempt.Created("old-session"), original)
-        assertEquals(CreateAttempt.Pending, store.createAttempts.read())
-        assertEquals(newer, store.newSessionDraft())
-        assertFalse(store.createAttempts.write(null, original))
-        assertEquals(CreateAttempt.Pending, SettingsStore(context).createAttempts.read())
+        gate.clear(older)
+        gate.acknowledgeOpened("old-session")
+        assertEquals(listOf(recent), SettingsStore(context).createAttempts.read())
     }
 
     @Test fun explicitClearOfAnOldFormDoesNotDeleteNewerDraft() {
@@ -76,30 +84,53 @@ class DraftOwnershipTest {
 
     @Test fun resolvedRequestDefaultNeverBecomesAnEditableOverrideAfterRejection() = runBlocking {
         val editable = original.copy(acu = "")
-        val submitted = editable.copy(acu = "20")
+        val submitted = pending(editable, acu = 20)
         store.saveNewSessionDraft(editable)
-        store.createAttempts.write(CreateAttempt.Pending, submitted)
-        assertEquals(submitted, store.createAttempts.pendingDraft())
+        store.createAttempts.write(listOf(submitted))
+        assertEquals(20, SettingsStore(context).createAttempts.read().single().submitted?.request?.maxAcuLimit)
         assertEquals("", store.newSessionDraft().acu)
-        store.createAttempts.write(null, submitted)
+        store.createAttempts.write(emptyList())
         assertEquals(editable, SettingsStore(context).newSessionDraft())
     }
 
-    @Test fun legacyPendingWarningCanBeDismissedWithoutVersionMetadata() = runBlocking {
+    @Test fun legacyWarningMigratesAndDismissStillRequiresConfirmationUntilClear() = runBlocking {
         store.saveNewSessionDraft(original)
         context.getSharedPreferences("drafts", Context.MODE_PRIVATE).edit()
             .putString("__new_session_attempt__", "").commit()
-        assertEquals(CreateAttempt.Pending, store.createAttempts.read())
-        assertTrue(store.createAttempts.write(null, original))
-        assertNull(store.createAttempts.read())
+        val gate = CreateSessionGate(store.createAttempts, { error("Unexpected POST") })
+        val legacy = gate.attempts.value.single()
+        assertNull(legacy.sessionId)
+        assertEquals(original, legacy.submitted?.draft)
+        gate.dismiss(legacy)
+        val dismissed = SettingsStore(context).createAttempts.read().single()
+        assertTrue(dismissed.dismissed)
+        assertEquals(CreateResult.NeedsConfirmation(dismissed), gate.submit(original.toCreateRequest(null)))
+        gate.clear(dismissed)
+        assertTrue(SettingsStore(context).createAttempts.read().isEmpty())
         assertEquals(original, store.newSessionDraft())
     }
 
-    @Test fun unrelatedTaskReplacesPendingButSamePromptStillNeedsConfirmation() = runBlocking {
-        store.createAttempts.write(CreateAttempt.Pending, original)
-        assertFalse(store.createAttempts.write(CreateAttempt.Pending, original.copy(draftVersion = "other-version")))
-        assertTrue(store.createAttempts.write(CreateAttempt.Pending, newer))
-        assertEquals(newer, store.createAttempts.pendingDraft())
-        assertFalse(store.createAttempts.write(null, original))
+    @Test fun unrelatedPendingTasksNeverReplaceEachOtherAndClearIsExact() = runBlocking {
+        val gate = CreateSessionGate(store.createAttempts, { throw ApiException(500, "Uncertain") })
+        gate.submit(original.toCreateRequest(null), original, original.versionKey)
+        val first = gate.attempts.value.single()
+        gate.submit(newer.toCreateRequest(null), newer, newer.versionKey)
+        assertEquals(2, SettingsStore(context).createAttempts.read().size)
+        gate.clear(first)
+        assertTrue(SettingsStore(context).createAttempts.read().single().matches(newer.prompt))
+    }
+
+    @Test fun legacySubmittedSnapshotWinsOverNewerEditableSlot() = runBlocking {
+        store.saveNewSessionDraft(newer)
+        val submitted = original.copy(acu = "20")
+        context.getSharedPreferences("drafts", Context.MODE_PRIVATE).edit()
+            .putString("__new_session_attempt__", "")
+            .putString("__new_session_attempt_draft__", json.encodeToString(submitted))
+            .putString("__new_session_attempt_version__", original.versionKey).commit()
+        val migrated = SettingsStore(context).createAttempts.read().single()
+        assertEquals(original.prompt, migrated.submitted?.request?.prompt)
+        assertEquals(20, migrated.submitted?.request?.maxAcuLimit)
+        assertEquals(original.versionKey, migrated.submitted?.draftVersion)
+        assertEquals(newer, store.newSessionDraft())
     }
 }

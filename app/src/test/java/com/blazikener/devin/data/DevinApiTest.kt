@@ -18,6 +18,17 @@ import org.junit.Test
 
 class DevinApiTest {
     @Test
+    fun createUsesAFreshConnectionWithoutChangingGetConnectionReuse() = runBlocking {
+        repeat(2) { server.enqueue(MockResponse().setBody("""{"org_id":"org-1"}""")) }
+        server.enqueue(MockResponse().setBody("""{"session_id":"created"}"""))
+        api.self("cog_x")
+        api.self("cog_x")
+        api.createSession(CreateSessionRequest(prompt = "New connection"))
+        assertEquals(0, server.takeRequest().sequenceNumber)
+        assertEquals(1, server.takeRequest().sequenceNumber)
+        assertEquals(0, server.takeRequest().sequenceNumber)
+    }
+    @Test
     fun createDoesNotReplayAfter408() = assertOneCreatePost(MockResponse().setResponseCode(408))
 
     @Test

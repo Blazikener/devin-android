@@ -69,7 +69,7 @@ fun CreateScreen(
     var ownsDraft by rememberSaveable { mutableStateOf(graph.settings.hasNewSessionDraft() || !form.sameContentAs(saved)) }
     var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
     val vm: CreateSessionViewModel = viewModel {
-        CreateSessionViewModel(graph.api::createSession, graph.settings.createAttempts)
+        CreateSessionViewModel(graph.createGate, form.prompt, graph.settings::wasNewSessionDraftConsumed)
     }
     val submission by vm.ui.collectAsStateWithLifecycle()
     val busy = submission.submitting || submission.sessionId != null
@@ -223,7 +223,7 @@ fun CreateScreen(
                     )
                     submission.pendingDraft?.let { Text("Previous task: ${it.prompt}", style = MaterialTheme.typography.bodyMedium) }
                     TextButton(onClick = onCheckSessions) { Text("Check Sessions") }
-                    TextButton(onClick = { vm.resolveUncertain(form) }) { Text("Dismiss warning") }
+                    TextButton(onClick = vm::dismissWarning) { Text("Dismiss warning") }
                     TextButton(
                         onClick = {
                             if (attachmentVm.uploads.items.value.isEmpty()) {

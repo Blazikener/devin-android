@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 @Serializable
 data class DraftAttachment(val name: String, val url: String)
@@ -118,9 +119,11 @@ class SettingsStore(context: Context) {
         drafts.edit().consumeDraft(draft).apply()
     }
 
-    private fun SharedPreferences.Editor.consumeDraft(draft: NewSessionDraft) = apply {
-        putStringSet(CONSUMED_DRAFTS_KEY, drafts.getStringSet(CONSUMED_DRAFTS_KEY, emptySet()).orEmpty() + draft.versionKey)
-        if (hasNewSessionDraft() && newSessionDraft().versionKey == draft.versionKey) {
+    private fun SharedPreferences.Editor.consumeDraft(draft: NewSessionDraft) = consumeDraftVersion(draft.versionKey)
+
+    private fun SharedPreferences.Editor.consumeDraftVersion(version: String) = apply {
+        putStringSet(CONSUMED_DRAFTS_KEY, drafts.getStringSet(CONSUMED_DRAFTS_KEY, emptySet()).orEmpty() + version)
+        if (hasNewSessionDraft() && newSessionDraft().versionKey == version) {
             remove(NEW_SESSION_KEY)
             remove(LEGACY_NEW_SESSION_KEY)
         }
@@ -132,63 +135,32 @@ class SettingsStore(context: Context) {
     }
 
     internal val createAttempts: CreateAttemptStore = object : CreateAttemptStore {
-        override fun isConsumed(draft: NewSessionDraft) = wasNewSessionDraftConsumed(draft)
-
-        override fun pendingDraft(): NewSessionDraft? = synchronized(draftLock) {
-            if (read() != CreateAttempt.Pending) return@synchronized null
-            drafts.getString(CREATE_ATTEMPT_DRAFT_KEY, null)?.let { raw ->
-                runCatching { json.decodeFromString(NewSessionDraft.serializer(), raw) }.getOrNull()
-            } ?: newSessionDraft().takeIf { hasNewSessionDraft() }
+        override fun read(): List<CreateAttempt> = synchronized(draftLock) {
+            drafts.getString(CREATE_ATTEMPTS_KEY, null)?.let { return@synchronized json.decodeFromString(it) }
+            val legacy = drafts.getString(CREATE_ATTEMPT_KEY, null) ?: return@synchronized emptyList()
+            val draft = drafts.getString(CREATE_ATTEMPT_DRAFT_KEY, null)?.let {
+                runCatching { json.decodeFromString(NewSessionDraft.serializer(), it) }.getOrNull()
+            } ?: newSessionDraft()
+            val submitted = if (legacy.isEmpty()) CreateSnapshot(
+                draft.toCreateRequest(value.createAsUserId), draft,
+                drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) ?: draft.versionKey,
+            ) else null
+            listOf(CreateAttempt(createFingerprint(draft.prompt), 0, legacy.ifEmpty { null }, submitted = submitted))
         }
 
-        override fun read(): CreateAttempt? = when (val value = drafts.getString(CREATE_ATTEMPT_KEY, null)) {
-            null -> null
-            "" -> CreateAttempt.Pending
-            else -> CreateAttempt.Created(value)
-        }
-
-        override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean =
+        override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?): Boolean =
             withContext(Dispatchers.IO) {
                 synchronized(draftLock) {
-                    val current = read()
-                    val ownsAttempt = draft == null || current == null ||
-                        (current == CreateAttempt.Pending && !drafts.contains(CREATE_ATTEMPT_VERSION_KEY)) ||
-                        drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) == draft.versionKey
-                    if (attempt == null && !ownsAttempt) return@synchronized false
-                    if (attempt == CreateAttempt.Pending && current == CreateAttempt.Pending && !ownsAttempt &&
-                        pendingDraft()?.let { it.prompt.trim() == draft.prompt.trim() } != false) return@synchronized false
                     drafts.edit().apply {
-                        when (attempt) {
-                            null -> if (ownsAttempt) {
-                                remove(CREATE_ATTEMPT_KEY)
-                                remove(CREATE_ATTEMPT_VERSION_KEY)
-                                remove(CREATE_ATTEMPT_DRAFT_KEY)
-                            }
-                            CreateAttempt.Pending -> {
-                                putString(CREATE_ATTEMPT_KEY, "")
-                                putString(CREATE_ATTEMPT_VERSION_KEY, draft?.versionKey)
-                                if (draft != null) putString(CREATE_ATTEMPT_DRAFT_KEY, json.encodeToString(NewSessionDraft.serializer(), draft))
-                                // Request defaults belong only to this durable snapshot. The editable
-                                // slot was saved at the edit boundary and may now hold a newer task.
-                            }
-                            is CreateAttempt.Created -> {
-                                if (ownsAttempt) {
-                                    putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
-                                    remove(CREATE_ATTEMPT_DRAFT_KEY)
-                                }
-                                if (draft != null) consumeDraft(draft)
-                            }
-                        }
+                        remove(CREATE_ATTEMPT_KEY)
+                        remove(CREATE_ATTEMPT_VERSION_KEY)
+                        remove(CREATE_ATTEMPT_DRAFT_KEY)
+                        if (attempts.isEmpty()) remove(CREATE_ATTEMPTS_KEY)
+                        else putString(CREATE_ATTEMPTS_KEY, json.encodeToString(attempts))
+                        if (consumeDraftVersion != null) consumeDraftVersion(consumeDraftVersion)
                     }.commit()
                 }
             }
-
-        override fun acknowledgeCreated(sessionId: String) {
-            synchronized(draftLock) {
-                if (read() == CreateAttempt.Created(sessionId)) drafts.edit()
-                    .remove(CREATE_ATTEMPT_KEY).remove(CREATE_ATTEMPT_VERSION_KEY).remove(CREATE_ATTEMPT_DRAFT_KEY).apply()
-            }
-        }
     }
     fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }
 
@@ -203,6 +175,7 @@ class SettingsStore(context: Context) {
         const val NEW_SESSION_KEY = "__new_session__"
         const val LEGACY_NEW_SESSION_KEY = "__new__"
         const val CREATE_ATTEMPT_KEY = "__new_session_attempt__"
+        const val CREATE_ATTEMPTS_KEY = "__create_attempts__"
         const val CREATE_ATTEMPT_VERSION_KEY = "__new_session_attempt_version__"
         const val CREATE_ATTEMPT_DRAFT_KEY = "__new_session_attempt_draft__"
         const val CONSUMED_DRAFTS_KEY = "__consumed_new_session_drafts__"

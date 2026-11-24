@@ -5,6 +5,7 @@ import android.content.Context
 import com.blazikener.devin.data.AuthStore
 import com.blazikener.devin.data.Cache
 import com.blazikener.devin.data.DevinApi
+import com.blazikener.devin.data.CreateSessionGate
 import com.blazikener.devin.data.SettingsStore
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
@@ -18,6 +19,7 @@ class AppGraph(context: Context) {
         apiKey = { auth.account.value?.apiKey },
         orgId = { auth.account.value?.orgId },
     )
+    internal val createGate = CreateSessionGate(settings.createAttempts, api::createSession)
 }
 
 class DevinApp : Application() {

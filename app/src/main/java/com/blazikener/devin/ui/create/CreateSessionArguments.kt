@@ -1,7 +1,5 @@
 package com.blazikener.devin.ui.create
 
-import com.blazikener.devin.data.CreateAttempt
-import com.blazikener.devin.data.CreateAttemptStore
 import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.withVersionFrom
 
@@ -9,12 +7,6 @@ private const val DEFAULT_MODE_OVERRIDE = "default"
 
 internal fun createModeOverride(modeChosen: Boolean, chosenMode: String?): String? =
     if (modeChosen) chosenMode ?: DEFAULT_MODE_OVERRIDE else null
-
-internal fun CreateAttemptStore.discardCompletedForIncomingPrompt(prompt: String?) {
-    if (prompt.isNullOrBlank()) return
-    val completed = read() as? CreateAttempt.Created ?: return
-    acknowledgeCreated(completed.sessionId)
-}
 
 internal fun NewSessionDraft.withCreateArguments(prompt: String?, modeOverride: String?): NewSessionDraft {
     val incoming = prompt?.trim()?.takeIf(String::isNotEmpty)
