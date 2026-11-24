@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateResult
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.DraftAttachment
 import com.blazikener.devin.data.NewSessionDraft
@@ -65,6 +66,7 @@ import com.blazikener.devin.graph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private data class Upload(val name: String, val url: String?, val error: String?)
 
@@ -75,14 +77,22 @@ private val DraftSaver = Saver<NewSessionDraft, String>(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String) -> Unit, modeOverride: String? = null, freshIncoming: Boolean = false) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val settings = g.settings.value
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft().withShared(initialPrompt)) }
-    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(g.settings.newSessionDraft()) }
+    var form by rememberSaveable(stateSaver = DraftSaver) {
+        mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride, g.createGate.attempts.value, freshIncoming))
+    }
+    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) {
+        val saved = g.settings.newSessionDraft()
+        val matching = g.createGate.attempts.value.firstOrNull { it.matches(form.prompt) }
+        // Merely displaying a matching share is not an edit and must not overwrite
+        // an unrelated unfinished draft. Subsequent real edits still autosave normally.
+        mutableStateOf(if (saved.shouldPreserveOnRecovery(matching)) form else saved)
+    }
     var busy by remember { mutableStateOf(false) }
     var created by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -158,12 +168,20 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     }
 
     fun create() {
+        if (busy || created) return
         val prompt = form.prompt
         if (prompt.isBlank()) { error = "Tell Devin what to do"; return }
         busy = true; error = null
         scope.launch {
             runCatching {
-                g.api.createSession(
+                val snapshot = form
+                val version = if (snapshot != lastSavedForm) {
+                    g.settings.saveNewSessionDraft(snapshot).also { lastSavedForm = snapshot }
+                } else {
+                    // Re-entry is not an edit: never overwrite a newer shared draft just to submit.
+                    g.settings.newSessionDraftVersion(snapshot) ?: UUID.randomUUID().toString()
+                }
+                when (val result = g.createGate.submit(
                     CreateSessionRequest(
                         prompt = prompt.trim(),
                         title = form.title.trim().ifEmpty { null },
@@ -174,12 +192,16 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                         attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
                         createAsUserId = settings.createAsUserId,
                         devinMode = form.mode,
-                    )
-                )
+                    ), snapshot, version,
+                )) {
+                    is CreateResult.Open -> result.sessionId
+                    is CreateResult.NeedsConfirmation -> error("This task may already have started. Go back to Home and check sessions before retrying.")
+                    is CreateResult.Failed -> error(result.message)
+                    CreateResult.Busy -> error("A session is already starting. Please wait.")
+                }
             }.onSuccess {
                 created = true
-                g.settings.saveNewSessionDraft(NewSessionDraft())
-                onCreated(it.id)
+                onCreated(it)
             }
                 .onFailure { error = it.message; busy = false }
         }
@@ -256,7 +278,15 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
             Button(onClick = ::create, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); error = null }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = {
+                if (form == lastSavedForm && g.settings.newSessionDraftVersion(form) == null) {
+                    val saved = g.settings.newSessionDraft()
+                    lastSavedForm = saved
+                    form = saved
+                } else form = defaults
+                failedUploads.clear()
+                error = null
+            }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.blazikener.devin.ui.navigation
 
+import android.os.Bundle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -69,9 +70,23 @@ class NavigationActionsTest {
         assertEquals(Routes.Home, nav.currentDestination!!.route)
     }
 
+    @Test fun recoveredCreateRetainsOneShotHomeCleanupThroughProcessRestoration() = onMain {
+        val nav = controller()
+        nav.openCreatedSessionFromLaunch("saved-success", "submitted-prompt-fingerprint")
+        val restored = controller(nav.saveState())
+        assertEquals("saved-success", restored.currentBackStackEntry!!.arguments!!.getString("id"))
+        assertTrue(restored.popBackStack())
+        val home = restored.currentBackStackEntry!!
+        assertEquals(Routes.Home, home.destination.route)
+        assertEquals("submitted-prompt-fingerprint", home.savedStateHandle.get<String>(SessionNavigationState.ConsumedHomeCreate))
+        home.savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = null
+        assertNull(home.savedStateHandle.get<String>(SessionNavigationState.ConsumedHomeCreate))
+    }
+
     @Test fun sharedPromptCreatesFreshEntryAndBackRestoresOriginalForm() = onMain {
         val nav = controller()
         nav.openCreateFromLaunch("original")
+        assertEquals(true, nav.currentBackStackEntry!!.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate))
         val originalEntry = nav.currentBackStackEntry!!.id
         nav.currentBackStackEntry!!.savedStateHandle["draft"] = "unsent"
         nav.openCreateFromLaunch("fresh shared text /?&")
@@ -80,6 +95,8 @@ class NavigationActionsTest {
         assertTrue(nav.popBackStack())
         assertEquals(originalEntry, nav.currentBackStackEntry!!.id)
         assertEquals("unsent", nav.currentBackStackEntry!!.savedStateHandle.get<String>("draft"))
+        val restored = controller(nav.saveState())
+        assertEquals(true, restored.currentBackStackEntry!!.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate))
     }
 
     @Test fun settingsAndColdLaunchKeepTheirExactParents() = onMain {
@@ -96,6 +113,26 @@ class NavigationActionsTest {
         assertEquals(Routes.Sessions, nav.currentDestination!!.route)
     }
 
+    @Test fun recoverySessionsHasHomeAsRootAndPreservesAnExistingList() = onMain {
+        val nav = controller()
+        nav.openCreateFromLaunch("uncertain Home task")
+        nav.showSessionsFromCreateRecovery()
+        assertEquals(Routes.Sessions, nav.currentDestination!!.route)
+        assertEquals(SessionsRequest(SessionFilter.All, recoverCreate = true),
+            SessionsRequest.decode(nav.currentBackStackEntry!!.savedStateHandle[SessionNavigationState.SessionsRequest]))
+        nav.showHomeRoot()
+        assertEquals(Routes.Home, nav.currentDestination!!.route)
+        nav.showSessionsRoot()
+        nav.currentBackStackEntry!!.savedStateHandle["query"] = "preserved"
+        val existing = nav.currentBackStackEntry!!.id
+        nav.openCreateFromLaunch("uncertain Sessions task")
+        nav.showSessionsFromCreateRecovery()
+        assertEquals(existing, nav.currentBackStackEntry!!.id)
+        assertEquals("preserved", nav.currentBackStackEntry!!.savedStateHandle.get<String>("query"))
+        nav.showHomeRoot()
+        assertEquals(Routes.Home, nav.currentDestination!!.route)
+    }
+
     class Marker : ViewModel() {
         var cleared = false
         override fun onCleared() { cleared = true }
@@ -105,7 +142,7 @@ class NavigationActionsTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(test)
     }
 
-    private fun controller(): NavHostController {
+    private fun controller(saved: Bundle? = null): NavHostController {
         val nav = NavHostController(ApplicationProvider.getApplicationContext())
         val owner = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.RESUMED }
@@ -114,6 +151,7 @@ class NavigationActionsTest {
         nav.setViewModelStore(ViewModelStore())
         val navigator = ImmediateNavigator()
         nav.navigatorProvider.addNavigator(navigator)
+        saved?.let(nav::restoreState)
         nav.graph = nav.createGraph(startDestination = Routes.Home) {
             listOf(Routes.Home, Routes.Login, Routes.Sessions, Routes.Settings, Routes.Session, Routes.Create).forEach { path ->
                 addDestination(navigator.createDestination().apply {

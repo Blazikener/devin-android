@@ -1,99 +1,53 @@
 package com.blazikener.devin.ui.sessions
 
+import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CloudOff
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.Session
 import com.blazikener.devin.data.SessionFilter
+import com.blazikener.devin.data.SessionState
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
-import com.blazikener.devin.ui.components.DevinRootShell
-import com.blazikener.devin.ui.navigation.RootDestination
+import com.blazikener.devin.ui.components.*
 import com.blazikener.devin.ui.navigation.SessionsRequest
-import androidx.compose.material.icons.outlined.Menu
-import com.blazikener.devin.ui.components.EmptyState
-import com.blazikener.devin.ui.components.StatusPill
-import com.blazikener.devin.ui.components.openUrl
-import com.blazikener.devin.ui.components.relativeTime
+import com.blazikener.devin.ui.navigation.RootDestination
+import com.blazikener.devin.ui.theme.attentionContainer
+import com.blazikener.devin.ui.theme.onAttentionContainer
 import com.blazikener.devin.ui.theme.color
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,41 +67,53 @@ fun SessionsScreen(
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
-    val vm: SessionsViewModel = viewModel { val app = ctx.applicationContext; SessionsViewModel(g) { SessionWatcher.markSeen(app, it) } }
+    val vm: SessionsViewModel = viewModel {
+        SessionsViewModel(g, createSavedStateHandle()) { SessionWatcher.markSeen(ctx.applicationContext, it) }
+    }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val account by g.auth.account.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var searching by rememberSaveable { mutableStateOf(ui.query.isNotEmpty()) }
     var applied by rememberSaveable { mutableStateOf(false) }
+    var focusSearch by rememberSaveable { mutableStateOf(initialSearch) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
     var confirmTerminate by remember { mutableStateOf<Session?>(null) }
     val listState = rememberLazyListState()
-    val listIdentity = "${ui.key.mine}|${ui.key.archived}|${ui.filter.name}|${ui.query}"
-    var previousListIdentity by rememberSaveable { mutableStateOf(listIdentity) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(vm, initialFilter, initialSearch) {
         if (!applied) {
             initialFilter?.let(vm::setFilter)
-            if (initialSearch) searching = true
             applied = true
         }
     }
-
     LaunchedEffect(navigationRequest) {
         navigationRequest?.let { request ->
-            request.filter?.let(vm::setFilter)
-            if (request.search) searching = true
+            if (request.recoverCreate) {
+                vm.showAllForCreateRecovery()
+                focusSearch = false
+                focusManager.clearFocus()
+                keyboard?.hide()
+                // Schedule the next measurement, including when an empty/loading feed has no list yet.
+                listState.requestScrollToItem(0)
+            } else {
+                request.filter?.let(vm::setFilter)
+                if (request.search) focusSearch = true
+            }
             onNavigationRequestHandled()
         }
     }
-
-    // Live refresh while visible; also feeds the notifier so background checks don't re-alert.
+    LaunchedEffect(focusSearch) {
+        if (focusSearch) { focus.requestFocus(); focusSearch = false }
+    }
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 vm.refresh()
-                val prefs = ctx.getSharedPreferences("watcher", android.content.Context.MODE_PRIVATE)
+                val prefs = ctx.getSharedPreferences("watcher", Context.MODE_PRIVATE)
                 SessionWatcher.check(ctx, vm.ui.value.all, prefs, Triple(false, false, false))
                 delay(if (vm.ui.value.workingCount > 0) 10_000 else 30_000)
             }
@@ -161,13 +127,11 @@ fun SessionsScreen(
             layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 5 } == true
         }
     }
-    LaunchedEffect(listIdentity) {
-        // Effects restart after a saved root re-enters composition. Only a real filter/query/owner
-        // change should reset the independently restored LazyListState.
-        if (previousListIdentity != listIdentity) {
-            previousListIdentity = listIdentity
-            listState.scrollToItem(0)
-        }
+    // Do not reset a restored list merely because this screen re-entered composition.
+    val viewKey = ui.key.toString() + "|" + ui.filter.name + "|" + ui.query
+    var previousView by rememberSaveable { mutableStateOf(viewKey) }
+    LaunchedEffect(viewKey) {
+        if (previousView != viewKey) { listState.scrollToItem(0); previousView = viewKey }
     }
     val canLoadMore = feed.hasMore && !feed.loadingMore && !feed.refreshing && feed.error == null && feed.pageError == null
     val waitingForMore = feed.loadingMore || canLoadMore ||
@@ -181,186 +145,212 @@ fun SessionsScreen(
         recents = ui.all, needsYouCount = ui.needsYouCount,
         onHome = onHome, onSessions = {},
         onNeedsYou = { vm.setFilter(SessionFilter.NeedsYou) },
-        onSearch = { searching = true }, onSettings = onSettings,
+        onSearch = { focusSearch = true }, onSettings = onSettings,
         onOpen = onOpen, onNew = onNew,
     ) { openMenu ->
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    if (searching) OutlinedTextField(
-                        value = ui.query, onValueChange = vm::setQuery, singleLine = true,
-                        placeholder = { Text("Search titles, tags, PRs") }, modifier = Modifier.fillMaxWidth(),
-                    ) else Column {
-                        Text("Devin", style = MaterialTheme.typography.titleLarge)
-                        Text("YOUR WORKSPACE", style = MaterialTheme.typography.labelSmall, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = openMenu) {
-                        Icon(Icons.Outlined.Menu, contentDescription = "Open menu")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { searching = !searching; if (!searching) vm.setQuery("") }) {
-                        Icon(if (searching) Icons.Outlined.Close else Icons.Outlined.Search, contentDescription = if (searching) "Close search" else "Search")
-                    }
-                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
-                },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("New session") }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
-        },
-        snackbarHost = { SnackbarHost(snack) },
-    ) { pad ->
-        Column(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize().imePadding()) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (account?.userId != null) FilterChip(
-                    selected = ui.mineOnly, onClick = vm::toggleMine, label = { Text(if (ui.mineOnly) "Mine" else "All users") },
-                    leadingIcon = { Icon(Icons.Outlined.Person, null, Modifier.size(16.dp)) },
+        Scaffold(
+            topBar = {
+                DevinTopBar("Sessions",
+                    navigationIcon = { DevinIconButton("Open menu", Icons.Outlined.Menu, openMenu) },
+                    actions = { DevinIconButton("New session", Icons.Outlined.Add, onNew) })
+            },
+            snackbarHost = { SnackbarHost(snack) },
+        ) { padding ->
+            Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding()) {
+                OutlinedTextField(
+                    ui.query, vm::setQuery,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).focusRequester(focus),
+                    label = { Text("Search your sessions") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                    trailingIcon = {
+                        Row {
+                            if (ui.query.isNotEmpty()) DevinIconButton("Clear search", Icons.Outlined.Close, { vm.setQuery("") })
+                            DevinIconButton("Filter sessions", Icons.Outlined.Tune, { showFilters = true })
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
                 )
-                SessionFilter.entries.forEach { f ->
-                    FilterChip(
-                        selected = ui.filter == f, onClick = { vm.setFilter(f) },
-                        label = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(f.label)
-                                if (f == SessionFilter.NeedsYou && ui.needsYouCount > 0) {
-                                    Spacer(Modifier.width(6.dp)); Badge { Text("${ui.needsYouCount}") }
-                                }
-                            }
-                        },
-                    )
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val primary = listOf(SessionFilter.All, SessionFilter.NeedsYou, SessionFilter.Working)
+                    (primary + listOf(ui.filter).filterNot { it in primary }).forEach { filter ->
+                        FilterChip(
+                            selected = ui.filter == filter, onClick = { vm.setFilter(filter) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            label = {
+                                Text(filter.label + if (filter == SessionFilter.NeedsYou && ui.needsYouCount > 0) " " + ui.needsYouCount else "")
+                            },
+                        )
+                    }
                 }
-            }
-            if (feed.offline) Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.CloudOff, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text("Offline — showing saved sessions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            PullToRefreshBox(isRefreshing = feed.manualRefresh, onRefresh = vm::pullRefresh, modifier = Modifier.fillMaxSize()) {
-                when {
-                    visible.isEmpty() && (waitingForMore || (feed.loading && feed.error == null)) ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    feed.error != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load sessions", feed.error) {
+                if (feed.offline || (feed.error != null && visible.isNotEmpty())) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.CloudOff, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Showing saved sessions", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         TextButton(onClick = vm::pullRefresh) { Text("Retry") }
                     }
-                    feed.pageError != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load more sessions", feed.pageError) {
-                        TextButton(onClick = { vm.loadMore(retry = true) }) { Text("Retry") }
-                    }
-                    visible.isEmpty() -> EmptyState(
-                        if (ui.query.isNotBlank()) "No matches" else "Nothing here",
-                        when {
-                            feed.offline -> "No saved sessions match this view."
-                            ui.query.isNotBlank() -> "Try a different search."
-                            ui.filter == SessionFilter.NeedsYou -> "Devin doesn't need anything from you right now."
-                            ui.filter == SessionFilter.All -> "Start a session and it shows up here."
-                            else -> "No ${ui.filter.label.lowercase()} sessions."
-                        },
-                    )
-                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(visible, key = { it.id }) { s ->
-                            SessionRow(
-                                s, pinned = s.id in ui.pinned, onClick = { onOpen(s.id) },
-                                onAction = { action ->
-                                    if (action == SessionAction.Terminate) confirmTerminate = s
-                                    else vm.act(s.id, action) { msg -> scope.launch { snack.showSnackbar(msg) } }
-                                },
-                                onPin = { vm.togglePin(s.id) },
-                                onOpenWeb = { openUrl(ctx, s.url) },
-                                modifier = Modifier.animateItem(),
-                            )
+                }
+                PullToRefreshBox(isRefreshing = feed.manualRefresh, onRefresh = vm::pullRefresh, modifier = Modifier.weight(1f)) {
+                    when {
+                        visible.isEmpty() && (waitingForMore || (feed.loading && feed.error == null)) ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.semantics { contentDescription = "Loading sessions" }) }
+                        feed.error != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load sessions", feed.error) {
+                            TextButton(onClick = vm::pullRefresh) { Text("Retry") }
                         }
-                        if (feed.loadingMore) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } }
-                        if (feed.pageError != null && !feed.offline) item {
-                            TextButton(onClick = { vm.loadMore(retry = true) }, modifier = Modifier.fillMaxWidth()) { Text("Couldn't load more — retry") }
+                        feed.pageError != null && visible.isEmpty() && !feed.offline -> EmptyState("Couldn't load more sessions", feed.pageError) {
+                            TextButton(onClick = { vm.loadMore(retry = true) }) { Text("Retry") }
                         }
-                        item { Spacer(Modifier.size(88.dp)) }
+                        visible.isEmpty() -> EmptyState(
+                            if (ui.query.isNotBlank()) "No matches" else if (ui.filter == SessionFilter.NeedsYou) "All caught up" else "Nothing here",
+                            when {
+                                feed.offline -> "No saved sessions match this view."
+                                ui.query.isNotBlank() -> "Try a different title, tag or pull request."
+                                ui.filter == SessionFilter.NeedsYou -> "Devin doesn't need anything from you right now."
+                                ui.filter == SessionFilter.All -> "Start a session and it shows up here."
+                                else -> "No " + ui.filter.label.lowercase() + " sessions."
+                            },
+                        )
+                        else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                            item(key = "heading") {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                                    Text(if (account?.userId != null && !ui.mineOnly) "Everyone’s work" else "Your work",
+                                        style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f).semantics { heading() })
+                                    Text(visible.size.toString() + if (feed.hasMore) " shown" else " sessions",
+                                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            items(visible, key = { "session:" + it.id }) { session ->
+                                SessionRow(
+                                    session, pinned = session.id in ui.pinned, onClick = { keyboard?.hide(); onOpen(session.id) },
+                                    onAction = { action ->
+                                        if (action == SessionAction.Terminate) confirmTerminate = session
+                                        else vm.act(session.id, action) { message -> scope.launch { snack.showSnackbar(message) } }
+                                    },
+                                    onPin = { vm.togglePin(session.id) },
+                                    onOpenWeb = { openUrl(ctx, session.url) },
+                                )
+                            }
+                            if (feed.loadingMore) item {
+                                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(24.dp))
+                                }
+                            }
+                            if (feed.pageError != null && !feed.offline) item {
+                                TextButton(onClick = { vm.loadMore(retry = true) }, modifier = Modifier.fillMaxWidth()) { Text("Couldn't load more — retry") }
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    confirmTerminate?.let { s ->
+    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            Text("Filter sessions", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            if (account?.userId != null) {
+                ListItem(headlineContent = { Text("Only my sessions") },
+                    trailingContent = { Switch(ui.mineOnly, onCheckedChange = { vm.toggleMine() }, modifier = Modifier.semantics { contentDescription = "Only my sessions" }) })
+            }
+            SessionFilter.entries.forEach { filter ->
+                TextButton(onClick = { vm.setFilter(filter); showFilters = false },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { selected = ui.filter == filter }) {
+                    Text(if (filter == SessionFilter.Finished) "Finished and sleeping" else filter.label, Modifier.weight(1f))
+                    if (ui.filter == filter) Icon(Icons.Outlined.Check, "Selected")
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    confirmTerminate?.let { session ->
         AlertDialog(
             onDismissRequest = { confirmTerminate = null },
             title = { Text("Terminate session?") },
-            text = { Text("“${s.displayTitle}” will stop for good. This can't be undone.") },
+            text = { Text("“" + session.displayTitle + "” will stop for good. This can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmTerminate = null
-                    vm.act(s.id, SessionAction.Terminate) { msg -> scope.launch { snack.showSnackbar(msg) } }
+                    vm.act(session.id, SessionAction.Terminate) { message -> scope.launch { snack.showSnackbar(message) } }
                 }) { Text("Terminate", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmTerminate = null }) { Text("Cancel") } },
         )
-    }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
-    s: Session, pinned: Boolean, onClick: () -> Unit, onAction: (SessionAction) -> Unit,
+    session: Session, pinned: Boolean, onClick: () -> Unit, onAction: (SessionAction) -> Unit,
     onPin: () -> Unit, onOpenWeb: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, spring(stiffness = 650f), label = "session press")
-    val tilt by animateFloatAsState(if (pressed) 1f else 0f, spring(stiffness = 650f), label = "session tilt")
-    Surface(
-        modifier.graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-            rotationX = tilt * 4f
-            cameraDistance = 16f * density
-            transformOrigin = TransformOrigin(0.5f, 1f)
-        }, shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, if (s.state.needsAttention) s.state.color().copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) { Box {
+    Surface(color = if (session.state.needsAttention) attentionContainer else MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface) {
         Column(
-            Modifier.fillMaxWidth().combinedClickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClick = onClick, onLongClick = { menu = true })
-                .padding(16.dp),
+            Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClickLabel = "Open session",
+                onClick = onClick, onLongClickLabel = "Session actions", onLongClick = { menu = true })
+                .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (pinned) { Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(4.dp)) }
-                if (s.parentSessionId != null) { Icon(Icons.AutoMirrored.Outlined.CallSplit, "Child session", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(4.dp)) }
-                Text(s.displayTitle, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                Text(relativeTime(s.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.size(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(s.state)
-                s.pullRequests.firstOrNull()?.let { pr ->
-                    Text(
-                        "PR ${pr.label}" + (pr.state?.let { " · $it" } ?: "") + if (s.pullRequests.size > 1) " +${s.pullRequests.size - 1}" else "",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                    )
+                if (pinned) { Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
+                if (session.parentSessionId != null) {
+                    Icon(Icons.AutoMirrored.Outlined.CallSplit, "Child session", Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
                 }
-                Spacer(Modifier.weight(1f))
-                if (s.acusConsumed > 0) Text("%.1f ACU".format(s.acusConsumed), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(session.displayTitle, style = MaterialTheme.typography.titleMedium, maxLines = 3,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Box {
+                    DevinIconButton("Actions for " + session.displayTitle, Icons.Outlined.MoreVert, { menu = true })
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text(if (pinned) "Unpin" else "Pin to top") }, onClick = { menu = false; onPin() })
+                        DropdownMenuItem(text = { Text("Open in browser") }, onClick = { menu = false; onOpenWeb() })
+                        DropdownMenuItem(text = { Text("Copy link") }, onClick = { menu = false; clipboard.setText(AnnotatedString(session.url)) })
+                        DropdownMenuItem(text = { Text(if (session.isArchived) "Unarchive" else "Archive") },
+                            onClick = { menu = false; onAction(if (session.isArchived) SessionAction.Unarchive else SessionAction.Archive) })
+                        if (session.state.isActive || session.state.needsAttention) DropdownMenuItem(text = { Text("Put to sleep") },
+                            onClick = { menu = false; onAction(SessionAction.Sleep) })
+                        DropdownMenuItem(text = { Text("Terminate", color = MaterialTheme.colorScheme.error) },
+                            onClick = { menu = false; onAction(SessionAction.Terminate) })
+                    }
+                }
             }
+            val preview = when (session.state) {
+                SessionState.NeedsYou -> "Waiting for your reply"
+                SessionState.NeedsApproval -> "Approval needed on the web"
+                SessionState.Blocked -> "Session needs your attention"
+                else -> null
+            }
+            if (preview != null) Text(preview, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp, end = 12.dp))
+            // A wrapping flow keeps status and time reachable at 200% font scale.
+            SessionMetadata(session)
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(if (pinned) "Unpin" else "Pin to top") }, onClick = { menu = false; onPin() })
-            DropdownMenuItem(text = { Text("Open in browser") }, onClick = { menu = false; onOpenWeb() })
-            DropdownMenuItem(text = { Text("Copy link") }, onClick = { menu = false; clipboard.setText(AnnotatedString(s.url)) })
-            if (s.isArchived) DropdownMenuItem(text = { Text("Unarchive") }, onClick = { menu = false; onAction(SessionAction.Unarchive) })
-            else DropdownMenuItem(text = { Text("Archive") }, onClick = { menu = false; onAction(SessionAction.Archive) })
-            if (s.state.isActive || s.state.needsAttention) DropdownMenuItem(text = { Text("Put to sleep") }, onClick = { menu = false; onAction(SessionAction.Sleep) })
-            DropdownMenuItem(text = { Text("Terminate", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onAction(SessionAction.Terminate) })
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SessionMetadata(session: Session) {
+    FlowRow(Modifier.padding(end = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(session.state.label, style = MaterialTheme.typography.labelMedium,
+            color = if (session.state.needsAttention) onAttentionContainer else session.state.color())
+        Text(relativeTime(session.updatedAt), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        session.pullRequests.firstOrNull()?.let { pr ->
+            Text("PR " + pr.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    } }
+        if (session.acusConsumed > 0) Text("%.1f ACU".format(session.acusConsumed),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }

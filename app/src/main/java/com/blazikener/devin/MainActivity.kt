@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -27,6 +28,7 @@ import androidx.navigation.navArgument
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.data.SessionFilter
+import com.blazikener.devin.data.CreateAttempt
 import com.blazikener.devin.ui.create.CreateScreen
 import com.blazikener.devin.ui.home.HomeScreen
 import com.blazikener.devin.ui.login.LoginScreen
@@ -35,11 +37,16 @@ import com.blazikener.devin.ui.sessions.SessionsScreen
 import com.blazikener.devin.ui.settings.SettingsScreen
 import com.blazikener.devin.ui.theme.DevinTheme
 import com.blazikener.devin.ui.navigation.*
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 sealed interface Launch {
     data class OpenSession(val id: String) : Launch
     data class NewSession(val prompt: String?) : Launch
 }
+
+internal fun savedSessionOnLaunch(launch: Launch?, destination: String?, attempts: List<CreateAttempt>): String? =
+    if (launch == null && destination == Routes.Home) attempts.firstNotNullOfOrNull { it.sessionId } else null
 
 class MainActivity : ComponentActivity() {
     private val pending = mutableStateOf<Launch?>(null)
@@ -57,16 +64,27 @@ class MainActivity : ComponentActivity() {
             val account by g.auth.account.collectAsStateWithLifecycle()
             DevinTheme(settings.theme, settings.dynamicColor) {
                 val nav = rememberNavController()
+                val scope = rememberCoroutineScope()
                 val start = remember { if (account == null) "login" else "home" }
                 val launch by pending
+                val checkedRecovery = remember(account) { mutableStateOf(false) }
                 LaunchedEffect(launch, account) {
-                    val l = launch ?: return@LaunchedEffect
                     if (account == null) return@LaunchedEffect
-                    pending.value = null
                     // Cold launches get a Home parent. Warm launches preserve the exact previous route.
                     if (nav.currentDestination?.route == Routes.Login) {
                         nav.navigate(Routes.Home) { popUpTo(Routes.Login) { inclusive = true } }
                     }
+                    if (!checkedRecovery.value) {
+                        val destination = nav.currentBackStackEntryFlow.first { it.destination.route != Routes.Login }.destination.route
+                        checkedRecovery.value = true
+                        val attempts = g.createGate.attempts.value
+                        savedSessionOnLaunch(launch, destination, attempts)?.let { id ->
+                            nav.openCreatedSessionFromLaunch(id, attempts.first { it.sessionId == id }.fingerprint)
+                            g.createGate.acknowledgeOpened(id)
+                        }
+                    }
+                    val l = launch ?: return@LaunchedEffect
+                    pending.value = null
                     when (l) {
                         is Launch.OpenSession -> nav.openSessionFromLaunch(l.id)
                         is Launch.NewSession -> nav.openCreateFromLaunch(l.prompt)
@@ -86,15 +104,21 @@ class MainActivity : ComponentActivity() {
                             nav.navigate("home") { popUpTo("login") { inclusive = true } }
                         })
                     }
-                    composable("home") {
+                    composable("home") { entry ->
                         LaunchedEffect(Unit) { askNotifications() }
+                        val consumedCreate by entry.savedStateHandle.getStateFlow<String?>(
+                            SessionNavigationState.ConsumedHomeCreate, null,
+                        ).collectAsStateWithLifecycle()
                         HomeScreen(
-                            onOpen = { nav.navigate(Routes.session(it)) },
+                            onOpen = { nav.openSessionFromLaunch(it) },
                             onSessions = { filter, search ->
                                 nav.showSessionsRoot(filter, search)
                             },
-                            onNewForm = { nav.navigate(Routes.create(it)) },
+                            onNewForm = { prompt, mode -> nav.navigate(Routes.create(prompt, mode)) },
                             onSettings = { nav.navigate("settings") },
+                            onCreateRecovery = { nav.showSessionsFromCreateRecovery() },
+                            consumedCreateFingerprint = consumedCreate,
+                            onConsumedCreateHandled = { entry.savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = null },
                         )
                     }
                     composable(
@@ -126,14 +150,20 @@ class MainActivity : ComponentActivity() {
                         val id = e.arguments!!.getString("id")!!
                         SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) })
                     }
-                    composable(Routes.Create, arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
+                    composable(Routes.Create, arguments = listOf(
+                        navArgument("prompt") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    )) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
                         CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
                             nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
-                        })
+                            scope.launch { g.createGate.acknowledgeOpened(id) }
+                        }, modeOverride = e.arguments?.getString("mode"),
+                            freshIncoming = e.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate) == true)
                     }
                     composable("settings") {
                         SettingsScreen(onBack = { nav.back() }, onSignedOut = {
+                            g.applicationScope.launch { g.createGate.forgetAll() }
                             nav.clearProtectedNavigation()
                         })
                     }
