@@ -94,6 +94,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.DEVIN_MODES
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.CreateAttempt
+import com.blazikener.devin.data.createFingerprint
 import com.blazikener.devin.data.CreateResult
 import com.blazikener.devin.ui.create.CreateRecoveryWarning
 import com.blazikener.devin.data.Session
@@ -119,6 +120,8 @@ fun HomeScreen(
     onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
     onCheckSessions: () -> Unit,
+    consumedCreateFingerprint: String? = null,
+    onConsumedCreateHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val g = context.graph
@@ -154,6 +157,17 @@ fun HomeScreen(
     fun updatePrompt(value: String) {
         prompt = value
         error = null
+    }
+
+    LaunchedEffect(consumedCreateFingerprint) {
+        consumedCreateFingerprint?.let { fingerprint ->
+            if (createFingerprint(prompt) == fingerprint) {
+                prompt = ""
+                modeChosen = false
+                showModePicker = false
+            }
+            onConsumedCreateHandled()
+        }
     }
 
     LaunchedEffect(Unit) {

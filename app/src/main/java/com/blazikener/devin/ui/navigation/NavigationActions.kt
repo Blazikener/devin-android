@@ -30,6 +30,12 @@ fun NavHostController.openSessionFromLaunch(id: String) {
     navigate(Routes.session(id))
 }
 
+/** Keep prompt cleanup on Home until that parent is composed again, including after process restore. */
+fun NavHostController.openCreatedSessionFromLaunch(id: String, promptFingerprint: String) {
+    getBackStackEntry(Routes.Home).savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = promptFingerprint
+    openSessionFromLaunch(id)
+}
+
 fun NavHostController.openCreateFromLaunch(prompt: String?) {
     // A new entry must initialize from the shared prompt, not reuse another form's remembered state.
     navigate(Routes.create(prompt.orEmpty()))

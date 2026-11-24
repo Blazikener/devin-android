@@ -76,8 +76,9 @@ class MainActivity : ComponentActivity() {
                     val destination = nav.currentBackStackEntryFlow.first { it.destination.route != Routes.Login }.destination.route
                     if (!checkedRecovery.value) {
                         checkedRecovery.value = true
-                        savedSessionOnLaunch(launch, destination, g.createGate.attempts.value)?.let { id ->
-                            nav.openSessionFromLaunch(id)
+                        val attempts = g.createGate.attempts.value
+                        savedSessionOnLaunch(launch, destination, attempts)?.let { id ->
+                            nav.openCreatedSessionFromLaunch(id, attempts.first { it.sessionId == id }.fingerprint)
                             g.createGate.acknowledgeOpened(id)
                         }
                     }
@@ -109,8 +110,11 @@ class MainActivity : ComponentActivity() {
                             nav.navigate("home") { popUpTo("login") { inclusive = true } }
                         })
                     }
-                    composable("home") {
+                    composable("home") { entry ->
                         LaunchedEffect(Unit) { askNotifications() }
+                        val consumedCreate by entry.savedStateHandle.getStateFlow<String?>(
+                            SessionNavigationState.ConsumedHomeCreate, null,
+                        ).collectAsStateWithLifecycle()
                         HomeScreen(
                             onOpen = { nav.navigate(Routes.session(it)) },
                             onSessions = { filter, search ->
@@ -124,6 +128,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onSettings = { nav.navigate("settings") },
                             onCheckSessions = { nav.showSessionsFromCreateRecovery() },
+                            consumedCreateFingerprint = consumedCreate,
+                            onConsumedCreateHandled = { entry.savedStateHandle[SessionNavigationState.ConsumedHomeCreate] = null },
                         )
                     }
                     composable(
