@@ -78,7 +78,12 @@ class MainActivity : ComponentActivity() {
                     scope.launch { g.createGate.acknowledgeOpened(id) }
                 }
                 LaunchedEffect(launch, account) {
-                    if (account == null) return@LaunchedEffect
+                    if (account == null) {
+                        if (nav.currentBackStackEntryFlow.first().destination.route != "login") {
+                            nav.navigate("login") { popUpTo(0) { inclusive = true } }
+                        }
+                        return@LaunchedEffect
+                    }
                     val destination = nav.currentBackStackEntryFlow.first { it.destination.route != "login" }.destination.route
                     val l = launch
                     if (!checkedRecovery.value) {
@@ -177,9 +182,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable("settings") {
-                        SettingsScreen(onBack = { nav.back() }, onSignedOut = {
-                            nav.navigate("login") { popUpTo(0) { inclusive = true } }
-                        })
+                        SettingsScreen(onBack = { nav.back() })
                     }
                 }
             }

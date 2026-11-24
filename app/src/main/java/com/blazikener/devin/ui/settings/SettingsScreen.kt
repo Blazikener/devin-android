@@ -49,10 +49,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -71,8 +69,7 @@ import com.blazikener.devin.notify.SessionWatcher
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
-    val scope = rememberCoroutineScope()
+fun SettingsScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val s by g.settings.settings.collectAsStateWithLifecycle()
@@ -171,11 +168,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
         title = { Text("Sign out?") }, text = { Text("Your API key and cached sessions are removed from this device.") },
         confirmButton = { TextButton(onClick = {
             confirmOut = false
-            scope.launch {
-                g.createGate.forgetAll()
-                SessionWatcher.cancel(ctx); g.auth.clear(); g.cache.clear(); g.settings.clearDrafts()
-                ctx.getSharedPreferences("watcher", 0).edit().clear().apply(); onSignedOut()
-            }
+            g.signOut()
         }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { confirmOut = false }) { Text("Cancel") } },
     )
