@@ -266,7 +266,7 @@ fun SessionScreen(
                 }
                 if (uploads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    uploads.forEach { upload -> AttachmentUploadChip(upload) {
+                    uploads.forEach { upload -> AttachmentUploadChip(upload, compact = typingCramped) {
                         vm.uploads.remove(upload.id)
                         restoreAttachFocus = true
                     } }
