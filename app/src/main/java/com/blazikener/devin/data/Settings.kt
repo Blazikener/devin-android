@@ -106,9 +106,6 @@ class SettingsStore(context: Context) {
         drafts.edit().writeNewSessionDraft(d).apply()
     }
 
-    fun hasNewSessionDraft(): Boolean =
-        drafts.contains(NEW_SESSION_KEY) || !drafts.getString(LEGACY_NEW_SESSION_KEY, null).isNullOrBlank()
-
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
         remove(LEGACY_NEW_SESSION_KEY)
         if (d.isEmpty) remove(NEW_SESSION_KEY) else putString(NEW_SESSION_KEY, json.encodeToString(NewSessionDraft.serializer(), d))
