@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,7 +30,8 @@ internal fun AttachmentUploadChip(upload: AttachmentUpload, onRemove: () -> Unit
             stateDescription = upload.error ?: if (upload.uploading) "Uploading" else "Ready"
         },
         label = {
-            Column {
+            // The action's description/state above already include this information.
+            Column(Modifier.clearAndSetSemantics { }) {
                 Text(upload.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 upload.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
