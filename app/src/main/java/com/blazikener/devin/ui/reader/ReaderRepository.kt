@@ -33,7 +33,7 @@ data class ReadingAnchor(val version: String, val index: Int = 0, val offset: In
 @Serializable
 data class SavedDocument(val file: SessionAttachment, val text: String, val version: String, val savedAt: Long)
 
-enum class ReaderProblem { Offline, Expired, Denied, Missing, Transient, TooLarge, Unsupported, WebOnly, NoViewer }
+enum class ReaderProblem { Offline, Expired, Denied, Missing, Transient, TooLarge, ExportTooLarge, Unsupported, WebOnly, NoViewer }
 
 data class ReaderResult(
     val file: SessionAttachment? = null,

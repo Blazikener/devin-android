@@ -134,7 +134,7 @@ class ReaderViewModel(
             throw cancel
         } catch (failure: Exception) {
             val problem = if (failure is com.blazikener.devin.data.ApiException && failure.isAuth) ReaderProblem.Denied
-                else if (failure is com.blazikener.devin.data.DocumentTooLargeException) ReaderProblem.TooLarge else ReaderProblem.Transient
+                else if (failure is com.blazikener.devin.data.DocumentTooLargeException) ReaderProblem.ExportTooLarge else ReaderProblem.Transient
             if (problem == ReaderProblem.Denied) store.remove(session, id)
             mutable.update { it.copy(result = ReaderResult(file, problem = problem)) }
             null

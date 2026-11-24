@@ -199,7 +199,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
             if (ui.result.document != null && documentFormat(ui.result.document!!.file) == DocumentFormat.Markdown) {
                 TextButton(onClick = { plain = !plain; options = false }) { Text(if (plain) "Read Markdown" else "Read plain text") }
             }
-            TextButton(onClick = { options = false; download() }, enabled = ui.online && ui.result.file != null && !ui.working && ui.result.problem != ReaderProblem.Denied) { Text("Download file") }
+            TextButton(onClick = { options = false; download() }, enabled = ui.online && ui.result.file != null && !ui.working && ui.result.problem !in setOf(ReaderProblem.Denied, ReaderProblem.ExportTooLarge)) { Text("Download file") }
             TextButton(onClick = { options = false; webConfirm = true }) { Text("Open session on app.devin.ai") }
             TextButton(onClick = { options = false }) { Text("Close") }
             Spacer(Modifier.height(24.dp))
@@ -225,6 +225,7 @@ private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, b
         ReaderProblem.Denied -> "You don’t have access" to "This account can’t read the file. Check your account in Settings or ask the file owner for access."
         ReaderProblem.Missing -> "File isn’t available" to "This file wasn’t found in the session’s current file list. It may have been removed."
         ReaderProblem.TooLarge -> "File is too large to preview" to "In-app previews support UTF-8 text up to 2 MB. You can download files up to 20 MB, or open the session on the web."
+        ReaderProblem.ExportTooLarge -> "File is too large to download" to "In-app downloads support files up to 20 MB. Open this session on the web to download the original file."
         ReaderProblem.Unsupported -> "No in-app preview" to "$file uses a format this Reader can’t display. Open a compatible Android app or download the original file."
         ReaderProblem.NoViewer -> "No compatible viewer found" to "Install a compatible Android app, download the file, or share it. Markdown and plain text open here."
         ReaderProblem.WebOnly -> "This document lives on the web" to "Open app.devin.ai in your browser to read the document. Your session stays here."
@@ -241,11 +242,11 @@ private fun ReaderError(problem: ReaderProblem, file: String, online: Boolean, b
             ReaderProblem.Denied -> Button(onClick = onSettings) { Text("Account settings") }
             ReaderProblem.Unsupported -> Button(onClick = onExternal, enabled = online && !busy) { Text("Open with another app") }
             ReaderProblem.NoViewer, ReaderProblem.TooLarge -> Button(onClick = onDownload, enabled = online && !busy) { Text("Download file") }
-            ReaderProblem.WebOnly -> Button(onClick = onWeb) { Text("Open on web") }
+            ReaderProblem.WebOnly, ReaderProblem.ExportTooLarge -> Button(onClick = onWeb) { Text("Open on web") }
             else -> Button(onClick = onRetry, enabled = online && !busy) { Text(if (!online) "Retry when online" else if (problem == ReaderProblem.Expired) "Refresh file link" else "Retry") }
         }
         if (problem == ReaderProblem.NoViewer) TextButton(onClick = onShare, enabled = online && !busy) { Text("Share file") }
-        if (problem != ReaderProblem.Offline && problem != ReaderProblem.WebOnly) TextButton(onClick = onWeb) { Text(if (problem == ReaderProblem.Denied) "Check access on web" else "Open session on web") }
+        if (problem !in setOf(ReaderProblem.Offline, ReaderProblem.WebOnly, ReaderProblem.ExportTooLarge)) TextButton(onClick = onWeb) { Text(if (problem == ReaderProblem.Denied) "Check access on web" else "Open session on web") }
         TextButton(onClick = onBack) { Text("Back to ${origin.name}") }
         if (busy) Text("Preparing file…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
     }
