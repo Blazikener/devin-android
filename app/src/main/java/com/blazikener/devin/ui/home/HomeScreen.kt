@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +66,7 @@ fun HomeScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val compact = LocalConfiguration.current.screenHeightDp < 480
     val imeVisible = WindowInsets.isImeVisible
+    val keyboard = LocalSoftwareKeyboardController.current
     var prompt by rememberSaveable { mutableStateOf("") }
     var chosenMode by rememberSaveable { mutableStateOf<String?>(null) }
     var modeChosen by rememberSaveable { mutableStateOf(false) }
@@ -92,6 +94,8 @@ fun HomeScreen(
         }
     }
     fun send() {
+        if (prompt.isBlank() || launch.busy) return
+        keyboard?.hide()
         launcher.start(CreateSessionRequest(
             prompt = prompt.trim(),
             maxAcuLimit = settings.defaultAcuLimit?.takeIf { it > 0 },
@@ -127,7 +131,7 @@ fun HomeScreen(
                         }
                     }
                     if (launch.busy) {
-                        SessionLaunchCue(Modifier.fillMaxWidth().padding(vertical = 24.dp))
+                        SessionLaunchCue(Modifier.fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp))
                     } else if (!imeVisible) {
                         Spacer(Modifier.height(if (compact) 8.dp else 20.dp))
                         JadeWorkTiles(Modifier.size(72.dp))
@@ -183,7 +187,7 @@ fun HomeScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    val compactComposer = compact && imeVisible
+                    val compactComposer = compact && (imeVisible || launch.busy)
                     DevinOutlinedSurface(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(if (compactComposer) 4.dp else 12.dp)) {
                             // Keep the same field and focus node when the IME changes the layout.

@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -53,19 +55,39 @@ fun SessionLaunchCue(modifier: Modifier = Modifier) {
             ?.deviceConfigurationInfo?.reqGlEsVersion?.let { it >= 0x20000 } == true
     }
     var failed by remember { mutableStateOf(false) }
-    Column(modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(152.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-            if (reduced || failed || !supports3d) {
-                Icon(Icons.Outlined.Schedule, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
-            } else {
-                NativeLaunchTiles(Modifier.fillMaxSize(), onFailure = { failed = true })
+    val started = rememberSaveable { SystemClock.uptimeMillis() }
+    val compact = LocalConfiguration.current.screenHeightDp < 480
+    val graphic = remember(reduced, failed, supports3d, compact) {
+        movableContentOf {
+            Box(Modifier.size(if (compact) 72.dp else 152.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+                if (reduced || failed || !supports3d) {
+                    Icon(Icons.Outlined.Schedule, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                } else {
+                    NativeLaunchTiles(Modifier.fillMaxSize(), started, onFailure = { failed = true })
+                }
             }
         }
-        Text("Starting session", style = MaterialTheme.typography.titleMedium)
+    }
+    if (compact) {
+        Row(modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            graphic()
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text("Starting session", style = MaterialTheme.typography.titleMedium)
+                Text("Setting up your workspace", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    } else {
+    Column(modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        graphic()
+        Text("Starting session", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text("Setting up your workspace", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    }
     }
 }
 
@@ -92,7 +114,7 @@ fun JadeWorkTiles(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun NativeLaunchTiles(modifier: Modifier, onFailure: () -> Unit) {
+private fun NativeLaunchTiles(modifier: Modifier, started: Long, onFailure: () -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val callback by rememberUpdatedState(onFailure)
@@ -102,7 +124,6 @@ private fun NativeLaunchTiles(modifier: Modifier, onFailure: () -> Unit) {
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
     }
-    val started = rememberSaveable { SystemClock.uptimeMillis() }
     DisposableEffect(view, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
