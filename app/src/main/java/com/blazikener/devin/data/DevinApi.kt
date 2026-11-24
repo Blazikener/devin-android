@@ -157,13 +157,29 @@ class DevinApi(
         json.decodeFromString(get("/v3/organizations/${org()}/playbooks", listOf("first" to "$first", "include_enterprise" to "true", "after" to after)))
 
     /** Downloads an auth-gated attachment. */
-    suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
+    suspend fun download(url: String, maxBytes: Long = Long.MAX_VALUE): ByteArray = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(url).apply {
             if (sameOrigin(url, baseUrl())) auth()
         }.build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw ApiException(resp.code, "Download failed (${resp.code})")
-            resp.body!!.bytes()
+            val body = resp.body ?: throw IOException("Empty download")
+            if (body.contentLength() > maxBytes) throw DocumentTooLargeException()
+            body.byteStream().use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                var total = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > maxBytes) throw DocumentTooLargeException()
+                    out.write(buffer, 0, count)
+                }
+                out.toByteArray()
+            }
         }
     }
 }
+
+class DocumentTooLargeException : IOException("This file is too large to preview")

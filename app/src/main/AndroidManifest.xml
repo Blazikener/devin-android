@@ -43,6 +43,13 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.reader-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/reader_paths" />
+        </provider>
         <receiver android:name=".notify.ReplyReceiver" android:exported="false" />
     </application>
 </manifest>

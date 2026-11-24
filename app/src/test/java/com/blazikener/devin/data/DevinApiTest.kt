@@ -153,4 +153,28 @@ class DevinApiTest {
         assertFalse(sameOrigin("https://api.devin.ai:8443/x", "https://api.devin.ai"))
         assertFalse(sameOrigin("http://api.devin.ai/x", "https://api.devin.ai"))
     }
+
+    @Test
+    fun limitedDownloadRejectsDeclaredAndChunkedOversizeBodies() = runBlocking {
+        server.enqueue(MockResponse().setBody("123456"))
+        server.enqueue(MockResponse().setChunkedBody("123456", 2))
+        repeat(2) {
+            val failure = runCatching { api.download(server.url("/file").toString(), maxBytes = 5) }.exceptionOrNull()
+            assertTrue(failure is DocumentTooLargeException)
+        }
+    }
+
+    @Test
+    fun limitedDownloadKeepsSameOriginAuthButNeverSendsItToAnotherOrigin() = runBlocking {
+        server.enqueue(MockResponse().setBody("text"))
+        assertEquals("text", api.download(server.url("/report.md").toString(), 10).decodeToString())
+        assertEquals("Bearer cog_x", server.takeRequest().getHeader("Authorization"))
+        val external = MockWebServer()
+        external.start()
+        try {
+            external.enqueue(MockResponse().setBody("public"))
+            assertEquals("public", api.download(external.url("/file").toString(), 10).decodeToString())
+            assertEquals(null, external.takeRequest().getHeader("Authorization"))
+        } finally { external.shutdown() }
+    }
 }

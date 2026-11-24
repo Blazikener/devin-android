@@ -35,6 +35,11 @@ import com.blazikener.devin.ui.sessions.SessionsScreen
 import com.blazikener.devin.ui.settings.SettingsScreen
 import com.blazikener.devin.ui.theme.DevinTheme
 import com.blazikener.devin.ui.navigation.Routes
+import com.blazikener.devin.ui.navigation.SessionNavigationState
+import com.blazikener.devin.ui.navigation.SessionTab
+import com.blazikener.devin.ui.reader.ReaderScreen
+import com.blazikener.devin.ui.reader.ReadingAnchor
+import com.blazikener.devin.data.json
 
 sealed interface Launch {
     data class OpenSession(val id: String) : Launch
@@ -125,6 +130,31 @@ class MainActivity : ComponentActivity() {
                     composable(Routes.Session, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
                         val id = e.arguments!!.getString("id")!!
                         SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) })
+                    }
+                    composable(Routes.Reader, arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("file") { type = NavType.StringType },
+                        navArgument("version") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("origin") { type = NavType.StringType; defaultValue = SessionTab.Chat.name },
+                    )) { e ->
+                        val id = e.arguments!!.getString("id")!!
+                        val file = e.arguments!!.getString("file")!!
+                        val origin = SessionTab.entries.firstOrNull { it.name == e.arguments?.getString("origin") } ?: SessionTab.Chat
+                        val parent = remember(e) { nav.previousBackStackEntry }
+                        val initialAnchor = remember(e) {
+                            parent?.savedStateHandle?.get<Bundle>(SessionNavigationState.ReadingAnchor)?.getString(file)?.let {
+                                runCatching { json.decodeFromString<ReadingAnchor>(it) }.getOrNull()
+                            }
+                        }
+                        ReaderScreen(id, file, origin, initialAnchor, onAnchor = { anchor ->
+                            parent?.savedStateHandle?.apply {
+                                set(SessionNavigationState.FileId, file)
+                                set(SessionNavigationState.FileVersion, anchor.version)
+                                val anchors = get<Bundle>(SessionNavigationState.ReadingAnchor) ?: Bundle()
+                                anchors.putString(file, json.encodeToString(ReadingAnchor.serializer(), anchor))
+                                set(SessionNavigationState.ReadingAnchor, anchors)
+                            }
+                        }, onBack = { nav.back() }, onSettings = { nav.navigate(Routes.Settings) })
                     }
                     composable(Routes.Create, arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
