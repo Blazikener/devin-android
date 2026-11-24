@@ -159,7 +159,7 @@ class CreateSessionViewModelTest {
         assertEquals(2, requests)
         assertEquals("retry-session", restored.ui.value.sessionId)
         assertEquals(CreateAttempt.Created("retry-session"), attempts.read())
-        restored.acknowledgeCreated()
+        restored.acknowledgeCreated("retry-session")
         assertNull(attempts.read())
     }
 
@@ -171,8 +171,30 @@ class CreateSessionViewModelTest {
         assertFalse(restored.ui.value.uncertain)
         restored.submit(draft, null)
         runCurrent()
-        restored.acknowledgeCreated()
+        restored.acknowledgeCreated("original-session")
         assertNull(attempts.read())
+    }
+
+    @Test
+    fun incomingSharedPromptTakesPriorityOverCompletedSession() = runTest {
+        attempts.write(CreateAttempt.Created("old-session"), NewSessionDraft())
+        val incoming = "New shared text"
+        attempts.discardCompletedForIncomingPrompt(incoming)
+        val vm = model { error("Unexpected new request") }
+
+        assertNull(vm.ui.value.sessionId)
+        assertFalse(vm.ui.value.uncertain)
+        assertEquals(incoming, attempts.draft?.withCreateArguments(incoming, null)?.prompt)
+    }
+
+    @Test
+    fun incomingSharedPromptDoesNotDiscardUncertainAttempt() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        attempts.discardCompletedForIncomingPrompt("New shared text")
+        val vm = model { error("Unexpected new request") }
+
+        assertTrue(vm.ui.value.uncertain)
+        assertEquals(CreateAttempt.Pending, attempts.read())
     }
 
     @Test
@@ -199,9 +221,8 @@ class CreateSessionViewModelTest {
             return true
         }
 
-        override fun acknowledgeCreated() {
-            attempt = null
-            draft = NewSessionDraft()
+        override fun acknowledgeCreated(sessionId: String) {
+            if (attempt == CreateAttempt.Created(sessionId)) attempt = null
         }
     }
 }

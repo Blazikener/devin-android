@@ -126,8 +126,8 @@ class SettingsStore(context: Context) {
                 }.commit()
             }
 
-        override fun acknowledgeCreated() {
-            drafts.edit().remove(CREATE_ATTEMPT_KEY).writeNewSessionDraft(NewSessionDraft()).apply()
+        override fun acknowledgeCreated(sessionId: String) {
+            if (read() == CreateAttempt.Created(sessionId)) drafts.edit().remove(CREATE_ATTEMPT_KEY).apply()
         }
     }
 

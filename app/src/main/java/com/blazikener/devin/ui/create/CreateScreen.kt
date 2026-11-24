@@ -108,7 +108,7 @@ fun CreateScreen(
     LaunchedEffect(submission.sessionId) {
         submission.sessionId?.let {
             onCreated(it)
-            vm.acknowledgeCreated()
+            vm.acknowledgeCreated(it)
         }
     }
 

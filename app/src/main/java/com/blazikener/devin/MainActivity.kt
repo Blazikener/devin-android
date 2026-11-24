@@ -28,6 +28,7 @@ import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.ui.create.CreateScreen
+import com.blazikener.devin.ui.create.discardCompletedForIncomingPrompt
 import com.blazikener.devin.ui.home.HomeScreen
 import com.blazikener.devin.ui.login.LoginScreen
 import com.blazikener.devin.ui.session.SessionScreen
@@ -65,7 +66,10 @@ class MainActivity : ComponentActivity() {
                     // Links, shares and shortcuts return to home on Back and repeated launches don't pile up screens.
                     val route = when (l) {
                         is Launch.OpenSession -> "session/${l.id}"
-                        is Launch.NewSession -> "create?prompt=" + enc(l.prompt.orEmpty())
+                        is Launch.NewSession -> {
+                            g.settings.createAttempts.discardCompletedForIncomingPrompt(l.prompt)
+                            "create?prompt=" + enc(l.prompt.orEmpty())
+                        }
                     }
                     nav.navigate(route) { popUpTo("home") }
                 }
@@ -91,6 +95,7 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("sessions?filter=${filter?.name.orEmpty()}&search=$search")
                             },
                             onNewForm = { prompt, modeOverride ->
+                                g.settings.createAttempts.discardCompletedForIncomingPrompt(prompt)
                                 val mode = modeOverride?.let { "&mode=${enc(it)}" }.orEmpty()
                                 nav.navigate("create?prompt=${enc(prompt)}$mode")
                             },
