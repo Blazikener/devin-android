@@ -27,11 +27,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
@@ -81,6 +83,7 @@ fun SessionScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val inputModeManager = LocalInputModeManager.current
     val accessibility = remember(ctx) {
         ctx.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
     }
@@ -112,9 +115,10 @@ fun SessionScreen(
     LaunchedEffect(restoreAttachFocus, tab) {
         if (restoreAttachFocus && tab == SessionTab.Chat) {
             // TalkBack can be on the removed chip while input focus stays on
-            // Attach. Reissue focus only for touch exploration; ordinary chip
-            // removal must not steal the editor's focus or dismiss its IME.
-            if (accessibility?.isTouchExplorationEnabled == true) {
+            // Attach. Keyboard navigation also needs a surviving focus target.
+            // Ordinary touch removal must not steal the editor's focus/IME.
+            if (accessibility?.isTouchExplorationEnabled == true ||
+                inputModeManager.inputMode == InputMode.Keyboard) {
                 focusManager.clearFocus(force = true)
                 withFrameNanos { }
                 attachFocus.requestFocus()
