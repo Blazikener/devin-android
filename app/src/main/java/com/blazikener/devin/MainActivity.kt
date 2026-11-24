@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
                         navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
                     )) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
-                        CreateScreen(p, modeOverride = e.arguments?.getString("mode"), onBack = { nav.back() }, onCreated = { id ->
+                        CreateScreen(p, modeOverride = e.arguments?.getString("mode"), onBack = { nav.back() }, onCheckSessions = { nav.showSessionsRoot() }, onCreated = { id ->
                             nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
                         })
                     }

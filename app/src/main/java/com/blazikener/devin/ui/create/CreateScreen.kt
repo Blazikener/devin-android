@@ -48,7 +48,13 @@ private enum class SetupPicker(val title: String) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CreateScreen(
+    initialPrompt: String?,
+    modeOverride: String? = null,
+    onBack: () -> Unit,
+    onCheckSessions: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
     val context = LocalContext.current
     val graph = context.graph
     val settings = graph.settings.value
@@ -60,8 +66,9 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
     var form by rememberSaveable(stateSaver = DraftSaver) {
         mutableStateOf(saved.withCreateArguments(if (sharedChoice || saved.prompt.trim() == initialPrompt?.trim()) null else initialPrompt, modeOverride))
     }
+    var lastSavedForm by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(saved) }
     val vm: CreateSessionViewModel = viewModel {
-        CreateSessionViewModel(graph.api::createSession) { graph.settings.saveNewSessionDraft(NewSessionDraft()) }
+        CreateSessionViewModel(graph.api::createSession, graph.settings.createAttempts)
     }
     val submission by vm.ui.collectAsStateWithLifecycle()
     val busy = submission.submitting || submission.sessionId != null
@@ -73,11 +80,19 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
     // Persist synchronously at the edit boundary, including mode-only and ACU-only drafts.
     fun update(next: NewSessionDraft) {
         form = next
-        if (vm.ui.value.sessionId == null) graph.settings.saveNewSessionDraft(next)
+        if (vm.ui.value.sessionId == null && next != lastSavedForm) {
+            graph.settings.saveNewSessionDraft(next)
+            lastSavedForm = next
+        }
         vm.clearError()
     }
-    LaunchedEffect(Unit) { if (vm.ui.value.sessionId == null) graph.settings.saveNewSessionDraft(form) }
-    LaunchedEffect(submission.sessionId) { submission.sessionId?.let(onCreated) }
+    LaunchedEffect(Unit) { update(form) }
+    LaunchedEffect(submission.sessionId) {
+        submission.sessionId?.let {
+            onCreated(it)
+            vm.acknowledgeCreated()
+        }
+    }
     LaunchedEffect(uploads) {
         val completed = attachmentVm.uploads.items.value.filter { it.result != null }
         if (completed.isNotEmpty()) {
@@ -156,7 +171,7 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
                                 vm.submit(form, settings.createAsUserId)
                             }
                         },
-                        enabled = form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        enabled = !submission.uncertain && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create"),
                         shape = MaterialTheme.shapes.medium,
                     ) {
@@ -180,6 +195,25 @@ fun CreateScreen(initialPrompt: String?, modeOverride: String? = null, onBack: (
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Give it a good start.", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
                 Text("A clear task is all you need.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (submission.uncertain) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "This session may already have started. Check Sessions before retrying.",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                    )
+                    TextButton(onClick = onCheckSessions) { Text("Check Sessions") }
+                    TextButton(
+                        onClick = {
+                            if (attachmentVm.uploads.items.value.isEmpty()) {
+                                focus.clearFocus()
+                                vm.submit(form, settings.createAsUserId, confirmedRetry = true)
+                            }
+                        },
+                        enabled = form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                    ) { Text("Retry anyway") }
+                }
             }
             DevinOutlinedSurface(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
