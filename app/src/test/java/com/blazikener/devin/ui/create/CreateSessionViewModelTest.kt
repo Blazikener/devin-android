@@ -27,6 +27,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.SocketTimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CreateSessionViewModelTest {
@@ -79,7 +80,7 @@ class CreateSessionViewModelTest {
         var requests = 0
         val vm = model(
             createSession = {
-                if (++requests == 1) throw ApiException(500, "Server error")
+                if (++requests == 1) throw ApiException(403, "Rejected")
                 Session("retry-session")
             },
         )
@@ -87,7 +88,7 @@ class CreateSessionViewModelTest {
         vm.submit(draft, null)
         runCurrent()
         assertFalse(vm.ui.value.submitting)
-        assertEquals("Server error", vm.ui.value.error)
+        assertEquals("Rejected", vm.ui.value.error)
         assertFalse(vm.ui.value.uncertain)
         assertNull(attempts.read())
         assertEquals(draft, attempts.draft)
@@ -96,6 +97,44 @@ class CreateSessionViewModelTest {
         runCurrent()
         assertEquals("retry-session", vm.ui.value.sessionId)
         assertEquals(NewSessionDraft(), attempts.draft)
+    }
+
+    @Test
+    fun serverErrorRequiresExplicitRetryBecauseCreateMayHaveSucceeded() = runTest {
+        var requests = 0
+        val vm = model {
+            if (++requests == 1) throw ApiException(500, "Server error")
+            Session("retry-session")
+        }
+
+        vm.submit(draft, null)
+        runCurrent()
+        assertTrue(vm.ui.value.uncertain)
+        assertEquals("Server error", vm.ui.value.error)
+        assertEquals(CreateAttempt.Pending, attempts.read())
+
+        vm.submit(draft, null)
+        runCurrent()
+        assertEquals(1, requests)
+
+        vm.submit(draft, null, confirmedRetry = true)
+        runCurrent()
+        assertEquals(2, requests)
+        assertEquals("retry-session", vm.ui.value.sessionId)
+    }
+
+    @Test
+    fun timeoutPreservesPendingAttempt() = runTest {
+        for (failure in listOf(ApiException(408, "Request timeout"), SocketTimeoutException("Read timeout"))) {
+            val vm = model { throw failure }
+            vm.submit(draft, null)
+            runCurrent()
+
+            assertTrue(vm.ui.value.uncertain)
+            assertEquals(CreateAttempt.Pending, attempts.read())
+            store.clear()
+            attempts.write(null)
+        }
     }
 
     @Test

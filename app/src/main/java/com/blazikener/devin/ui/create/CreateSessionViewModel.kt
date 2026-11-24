@@ -70,7 +70,7 @@ internal class CreateSessionViewModel(
                 )
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                val rejected = failure is ApiException && failure.code in 400..599 && attempts.write(null)
+                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null)
                 _ui.value = CreateSessionUi(error = failure.message ?: "Couldn't start the session", uncertain = !rejected)
                 return@launch
             }
