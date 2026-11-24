@@ -12,6 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreateSessionArgumentsTest {
+    @Test fun repeatedHomeArgumentPreservesEditedTaskModeAndSubmittedIdentity() {
+        val original = NewSessionDraft().seedCreateDraft("Home task", "fast")
+        val edited = original.copy(prompt = "Edited task", mode = "ultra", draftVersion = "edited")
+        assertFalse(edited.needsSharedChoice("Home task"))
+        assertEquals(edited, edited.seedCreateDraft("Home task", "fast"))
+    }
+
+    @Test fun freshShareRepeatingAnOldHomeArgumentStillRequiresConsentAndDoesNotOverwrite() {
+        val original = NewSessionDraft().seedCreateDraft("Home task", "fast")
+        val edited = original.copy(prompt = "Unrelated unfinished task", mode = "ultra", draftVersion = "edited")
+        assertTrue(edited.needsSharedChoice("Home task", freshIncoming = true))
+        assertEquals(edited, edited.seedCreateDraft("Home task", "fast", freshIncoming = true))
+        val accepted = edited.withCreateArguments("Home task", null, freshIncoming = true)
+        assertEquals("Unrelated unfinished task\n\nHome task", accepted.prompt)
+        assertEquals("ultra", accepted.mode)
+    }
+
     @Test fun matchingShareKeepsUnrelatedDraftAndNeverCombinesPastItsPendingGuard() {
         val saved = NewSessionDraft(prompt = "Unfinished task", mode = "fast", acu = "50", draftVersion = "saved")
         val pending = listOf(CreateAttempt(createFingerprint("Shared task"), 1))

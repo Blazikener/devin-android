@@ -12,7 +12,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -67,7 +66,6 @@ class MainActivity : ComponentActivity() {
             val account by g.auth.account.collectAsStateWithLifecycle()
             DevinTheme(settings.theme, settings.dynamicColor) {
                 val nav = rememberNavController()
-                val scope = rememberCoroutineScope()
                 val start = remember { if (account == null) "login" else "home" }
                 val launch by pending
                 val checkedRecovery = remember(account) { mutableStateOf(false) }
@@ -121,10 +119,7 @@ class MainActivity : ComponentActivity() {
                                 nav.showSessionsRoot(filter, search)
                             },
                             onNewForm = { prompt, mode ->
-                                scope.launch {
-                                    g.createGate.discardCompletedForIncomingPrompt(prompt)
-                                    nav.navigate(Routes.create(prompt, mode))
-                                }
+                                nav.navigate(Routes.create(prompt, mode))
                             },
                             onSettings = { nav.navigate("settings") },
                             onCheckSessions = { nav.showSessionsFromCreateRecovery() },
@@ -166,7 +161,7 @@ class MainActivity : ComponentActivity() {
                         navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
                     )) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
-                        CreateScreen(p, modeOverride = e.arguments?.getString("mode"), onBack = { nav.back() }, onCheckSessions = { nav.showSessionsFromCreateRecovery() }, onCreated = { id ->
+                        CreateScreen(p, modeOverride = e.arguments?.getString("mode"), freshIncoming = e.savedStateHandle.get<Boolean>(SessionNavigationState.IncomingCreate) == true, onBack = { nav.back() }, onCheckSessions = { nav.showSessionsFromCreateRecovery() }, onCreated = { id ->
                             nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
                         })
                     }
