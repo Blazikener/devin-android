@@ -124,7 +124,8 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Routes.Session, arguments = listOf(navArgument("id") { type = NavType.StringType })) { e ->
                         val id = e.arguments!!.getString("id")!!
-                        SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) })
+                        SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) },
+                            onOpenFile = { file, tab -> nav.navigate(Routes.reader(id, file.id, origin = tab)) })
                     }
                     composable(Routes.Create, arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }

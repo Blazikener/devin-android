@@ -1,8 +1,6 @@
 package com.blazikener.devin.ui.session
 
 import android.content.Context
-import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blazikener.devin.AppGraph
@@ -14,8 +12,9 @@ import com.blazikener.devin.data.SessionAttachment
 import com.blazikener.devin.data.SessionMessage
 import com.blazikener.devin.notify.Notifications
 import com.blazikener.devin.notify.SessionWatcher
+import com.blazikener.devin.ui.components.AttachmentUploads
+import com.blazikener.devin.ui.components.readyAttachmentUrls
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.IOException
@@ -37,24 +36,23 @@ internal fun Throwable.userMessage(): String? = when (this) {
     else -> message
 }
 
-data class Draft(val name: String, val mime: String, val uri: Uri, val size: Long, val uploadedUrl: String? = null, val uploading: Boolean = true, val error: String? = null)
-
 data class ChatUi(
     val session: Session? = null,
     val messages: List<SessionMessage> = emptyList(),
     val pending: List<Pending> = emptyList(),
-    val attachments: List<SessionAttachment> = emptyList(),
-    val drafts: List<Draft> = emptyList(),
+    val files: FilesIndex = FilesIndex(),
     val loading: Boolean = true,
     val error: String? = null,
     val offline: Boolean = false,
 )
 
 class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id: String) : ViewModel() {
+    internal val uploads = AttachmentUploads(viewModelScope, ctx, g.api)
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
     private var cursor: String? = null
     private var poller: Job? = null
+    private val filesMutex = Mutex()
     // First fetch per screen is a full reload so stale cached history is replaced, not merged.
     private var synced = false
     // Ids of failed messages are kept while a retry is in flight.
@@ -63,12 +61,13 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
     init {
         viewModelScope.launch {
             val s = g.cache.session(id); val m = g.cache.messages(id)
+            val savedFiles = g.cache.attachments(id)
+            _ui.update { it.copy(files = FilesIndex(saved = savedFiles, fromCache = savedFiles != null)) }
             val unsent = g.settings.outbox(id)?.let { runCatching { json.decodeFromString(ListSerializer(Pending.serializer()), it) }.getOrNull() }.orEmpty()
             unsentIds += unsent.map { it.localId }
             if (s != null || m != null || unsent.isNotEmpty())
                 _ui.update { it.copy(session = s, messages = m.orEmpty(), pending = unsent, loading = s == null && m == null) }
             refresh()
-            loadAttachments()
         }
     }
 
@@ -101,7 +100,6 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
             cursor = c
             s to fresh
         }.onSuccess { (s, fresh) ->
-            val oldAtt = _ui.value.attachments.size
             synced = true
             _ui.update { u ->
                 val all = ((if (incremental) u.messages else emptyList()) + fresh).distinctBy { it.eventId }.sortedBy { it.createdAt }
@@ -116,55 +114,45 @@ class SessionViewModel(private val g: AppGraph, private val ctx: Context, val id
                 ctx.getSharedPreferences("watcher", Context.MODE_PRIVATE).edit()
                     .putString("m_$id", it.eventId).putString("s_$id", "${s.state.name}|${s.updatedAt}").apply()
             }
-            if (fresh.any { it.fromDevin } || oldAtt == 0) loadAttachments()
+            if (!incremental || fresh.isNotEmpty()) loadAttachments()
         }.onFailure { e ->
             if (e is CancellationException) throw e
-            _ui.update { it.copy(loading = false, error = e.userMessage(), offline = it.messages.isNotEmpty()) }
+            _ui.update { it.copy(loading = false, error = e.userMessage(), offline = e is IOException && e !is ApiException && it.messages.isNotEmpty()) }
+            // The attachment endpoint has independent availability from session/messages.
+            if (!incremental) loadAttachments()
         }
     }
 
-    private fun loadAttachments() = viewModelScope.launch {
-        runCatching { g.api.attachments(id) }.onSuccess { a -> _ui.update { it.copy(attachments = a) } }
+    fun loadAttachments() = viewModelScope.launch {
+        if (!filesMutex.tryLock()) return@launch
+        try {
+            _ui.update { it.copy(files = it.files.loading()) }
+            try {
+                val rows = g.api.attachments(id)
+                _ui.update { it.copy(files = it.files.loaded(rows)) }
+                g.cache.putAttachments(id, _ui.value.files.rows)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(files = it.files.failed(e)) }
+            }
+        } finally {
+            filesMutex.unlock()
+        }
     }
 
     fun draft(): String = g.settings.draft(id)
     fun saveDraft(t: String) = g.settings.saveDraft(id, t)
 
-    fun addFile(uri: Uri) {
-        val (name, size) = ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
-            c.moveToFirst()
-            val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { c.getString(it) } ?: "file"
-            val sz = c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 }?.let { c.getLong(it) } ?: 0L
-            n to sz
-        } ?: ("file" to 0L)
-        val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
-        val d = Draft(name, mime, uri, size)
-        _ui.update { it.copy(drafts = it.drafts + d) }
-        viewModelScope.launch { upload(d) }
-    }
-
-    private suspend fun upload(d: Draft) {
-        runCatching {
-            val bytes = withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(d.uri)!!.use { it.readBytes() } }
-            g.api.upload(d.name, d.mime, bytes)
-        }.onSuccess { up ->
-            _ui.update { u -> u.copy(drafts = u.drafts.map { if (it.uri == d.uri) it.copy(uploadedUrl = up.url, uploading = false) else it }) }
-        }.onFailure { e ->
-            _ui.update { u -> u.copy(drafts = u.drafts.map { if (it.uri == d.uri) it.copy(uploading = false, error = e.message) else it }) }
-        }
-    }
-
-    fun removeDraft(d: Draft) = _ui.update { u -> u.copy(drafts = u.drafts.filterNot { it.uri == d.uri }) }
-
-    val canSend: Boolean get() = _ui.value.drafts.none { it.uploading }
-
-    fun send(text: String) {
-        val urls = _ui.value.drafts.mapNotNull { it.uploadedUrl }
-        if (text.isBlank() && urls.isEmpty()) return
+    fun send(text: String): Boolean {
+        val urls = uploads.items.value.readyAttachmentUrls() ?: return false
+        if (text.isBlank() && urls.isEmpty()) return false
         val p = Pending(System.nanoTime().toString(), text.trim().ifBlank { "See attached." }, urls)
-        _ui.update { it.copy(pending = it.pending + p, drafts = emptyList()) }
+        _ui.update { it.copy(pending = it.pending + p) }
+        uploads.clear()
         saveDraft("")
         deliver(p)
+        return true
     }
 
     fun retry(p: Pending) {
