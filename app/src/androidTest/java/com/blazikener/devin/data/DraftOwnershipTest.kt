@@ -84,4 +84,22 @@ class DraftOwnershipTest {
         store.createAttempts.write(null, submitted)
         assertEquals(editable, SettingsStore(context).newSessionDraft())
     }
+
+    @Test fun legacyPendingWarningCanBeDismissedWithoutVersionMetadata() = runBlocking {
+        store.saveNewSessionDraft(original)
+        context.getSharedPreferences("drafts", Context.MODE_PRIVATE).edit()
+            .putString("__new_session_attempt__", "").commit()
+        assertEquals(CreateAttempt.Pending, store.createAttempts.read())
+        assertTrue(store.createAttempts.write(null, original))
+        assertNull(store.createAttempts.read())
+        assertEquals(original, store.newSessionDraft())
+    }
+
+    @Test fun unrelatedTaskReplacesPendingButSamePromptStillNeedsConfirmation() = runBlocking {
+        store.createAttempts.write(CreateAttempt.Pending, original)
+        assertFalse(store.createAttempts.write(CreateAttempt.Pending, original.copy(draftVersion = "other-version")))
+        assertTrue(store.createAttempts.write(CreateAttempt.Pending, newer))
+        assertEquals(newer, store.createAttempts.pendingDraft())
+        assertFalse(store.createAttempts.write(null, original))
+    }
 }

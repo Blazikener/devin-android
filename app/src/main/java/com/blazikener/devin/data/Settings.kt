@@ -150,10 +150,13 @@ class SettingsStore(context: Context) {
         override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean =
             withContext(Dispatchers.IO) {
                 synchronized(draftLock) {
-                    val ownsAttempt = draft == null || drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) == draft.versionKey
+                    val current = read()
+                    val ownsAttempt = draft == null || current == null ||
+                        (current == CreateAttempt.Pending && !drafts.contains(CREATE_ATTEMPT_VERSION_KEY)) ||
+                        drafts.getString(CREATE_ATTEMPT_VERSION_KEY, null) == draft.versionKey
                     if (attempt == null && !ownsAttempt) return@synchronized false
-                    if (attempt == CreateAttempt.Pending && read() == CreateAttempt.Pending &&
-                        drafts.contains(CREATE_ATTEMPT_VERSION_KEY) && !ownsAttempt) return@synchronized false
+                    if (attempt == CreateAttempt.Pending && current == CreateAttempt.Pending && !ownsAttempt &&
+                        pendingDraft()?.let { it.prompt.trim() == draft.prompt.trim() } != false) return@synchronized false
                     drafts.edit().apply {
                         when (attempt) {
                             null -> if (ownsAttempt) {

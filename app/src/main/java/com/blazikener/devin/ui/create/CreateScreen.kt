@@ -186,7 +186,7 @@ fun CreateScreen(
                                 vm.submit(form, settings.createAsUserId, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
-                        enabled = !submission.uncertain && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        enabled = !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create"),
                         shape = MaterialTheme.shapes.medium,
                     ) {
@@ -223,6 +223,7 @@ fun CreateScreen(
                     )
                     submission.pendingDraft?.let { Text("Previous task: ${it.prompt}", style = MaterialTheme.typography.bodyMedium) }
                     TextButton(onClick = onCheckSessions) { Text("Check Sessions") }
+                    TextButton(onClick = { vm.resolveUncertain(form) }) { Text("Dismiss warning") }
                     TextButton(
                         onClick = {
                             if (attachmentVm.uploads.items.value.isEmpty()) {

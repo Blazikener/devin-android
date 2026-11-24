@@ -328,6 +328,34 @@ class CreateSessionViewModelTest {
         assertEquals(newer, older.ui.value.pendingDraft)
     }
 
+    @Test
+    fun unrelatedPromptCanStartWhileOldWarningStillRequiresConfirmationForOriginal() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        val newer = draft.copy(prompt = "An unrelated task", draftVersion = "unrelated")
+        var sent: CreateSessionRequest? = null
+        val vm = model { request -> sent = request; Session("new") }
+        assertTrue(vm.ui.value.needsRetryConfirmation(draft))
+        assertFalse(vm.ui.value.needsRetryConfirmation(newer))
+        vm.submit(newer, null)
+        runCurrent()
+        assertEquals(newer.prompt, sent?.prompt)
+        assertEquals("new", vm.ui.value.sessionId)
+    }
+
+    @Test
+    fun dismissingWarningKeepsEditableDraftAndAllowsNewTask() = runTest {
+        attempts.write(CreateAttempt.Pending, draft)
+        val vm = model { Session("new") }
+        vm.resolveUncertain(draft)
+        runCurrent()
+        assertFalse(vm.ui.value.uncertain)
+        assertEquals(draft, attempts.draft)
+        assertNull(attempts.read())
+        vm.submit(draft.copy(prompt = "Another task"), null)
+        runCurrent()
+        assertEquals("new", vm.ui.value.sessionId)
+    }
+
     private class FakeCreateAttempts : CreateAttemptStore {
         private var attempt: CreateAttempt? = null
         private var pendingSnapshot: NewSessionDraft? = null

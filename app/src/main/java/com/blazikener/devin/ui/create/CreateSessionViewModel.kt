@@ -22,6 +22,9 @@ internal data class CreateSessionUi(
     val pendingDraft: NewSessionDraft? = null,
 )
 
+internal fun CreateSessionUi.needsRetryConfirmation(form: NewSessionDraft): Boolean =
+    uncertain && (pendingDraft == null || pendingDraft.prompt.trim() == form.prompt.trim())
+
 internal val NewSessionDraft.hasValidAcuLimit: Boolean
     get() = acu.isBlank() || (acu.all(Char::isDigit) && (acu.toIntOrNull() ?: 0) > 0)
 
@@ -55,7 +58,7 @@ internal class CreateSessionViewModel(
 
     fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false, defaultAcuLimit: Int? = null) {
         val state = _ui.value
-        if (state.submitting || state.sessionId != null || state.uncertain != confirmedRetry) return
+        if (state.submitting || state.sessionId != null || (confirmedRetry && !state.uncertain)) return
         val source = if (confirmedRetry) {
             val pending = attempts.pendingDraft()
             if (pending != null && pending.versionKey != (state.pendingDraft ?: form).versionKey) {
@@ -69,8 +72,11 @@ internal class CreateSessionViewModel(
             return
         }
         if (!confirmedRetry && attempts.read() == CreateAttempt.Pending) {
-            _ui.value = state.copy(uncertain = true, pendingDraft = attempts.pendingDraft())
-            return
+            val pending = attempts.pendingDraft()
+            if (pending == null || pending.prompt.trim() == form.prompt.trim()) {
+                _ui.value = state.copy(uncertain = true, pendingDraft = pending)
+                return
+            }
         }
         val prompt = source.prompt.trim()
         if (prompt.isEmpty()) {
