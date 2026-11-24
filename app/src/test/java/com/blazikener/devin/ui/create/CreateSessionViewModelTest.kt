@@ -87,6 +87,25 @@ class CreateSessionViewModelTest {
         assertEquals(1, calls)
     }
 
+    @Test fun recoveringSharedTaskNeverBlocksStartingAnUnrelatedSavedDraft() = runTest {
+        var calls = 0
+        val shared = draft.copy(prompt = "Shared task", draftVersion = "shared")
+        val g = gate {
+            calls++
+            if (it.prompt == shared.prompt) throw ApiException(500, "Uncertain")
+            Session("saved-draft-started")
+        }
+        g.submit(shared.toCreateRequest(null), shared, shared.versionKey)
+        val vm = model(g, recoveryPrompt = shared.prompt)
+        assertFalse(vm.ui.value.needsRetryConfirmation(draft))
+        assertEquals(draft, attempts.editable)
+        vm.submit(draft, null)
+        runCurrent()
+        assertEquals("saved-draft-started", vm.ui.value.sessionId)
+        assertEquals(2, calls)
+        assertEquals(shared, g.attempts.value.single { it.sessionId == null }.submitted?.draft)
+    }
+
     @Test fun retryUsesExactSnapshotIncludingResolvedDefaultAndCreateAsUser() = runTest {
         val sent = mutableListOf<CreateSessionRequest>()
         val original = draft.copy(attachments = listOf(DraftAttachment("context.txt", "https://files.test/context")))

@@ -195,7 +195,7 @@ fun CreateScreen(
                                 vm.submit(form, settings.createAsUserId, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
-                        enabled = recoveryPrompt?.let { submission.confirmation?.matches(it) } != true && !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
+                        enabled = !submission.needsRetryConfirmation(form) && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create"),
                         shape = MaterialTheme.shapes.medium,
                     ) {
