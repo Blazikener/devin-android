@@ -35,4 +35,4 @@ internal fun NewSessionDraft.withCreateArguments(
 }
 
 internal fun NewSessionDraft.shouldPreserveOnRecovery(matching: CreateAttempt?): Boolean =
-    matching != null && matching.sessionId == null && !isEmpty && !matching.matches(prompt)
+    matching != null && !isEmpty && !matching.matches(prompt)

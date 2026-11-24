@@ -82,4 +82,14 @@ class CreateSessionArgumentsTest {
         assertEquals(edited, reopened)
         assertEquals(CreateResult.NeedsConfirmation(pending), gate.submit(CreateSessionRequest(reopened.prompt)))
     }
+
+    @Test fun openingACompletedShareAlsoPreservesTheUnrelatedSavedEditor() {
+        val completed = CreateAttempt(createFingerprint("Completed task"), 1, sessionId = "saved-session")
+        val unfinished = NewSessionDraft(prompt = "Unfinished work", title = "Keep this", mode = "lite",
+            attachments = listOf(DraftAttachment("spec.md", "mock://spec")))
+        val opened = unfinished.withCreateArguments("Completed task", null, listOf(completed), freshIncoming = true)
+        assertEquals("Completed task", opened.prompt)
+        assertTrue(unfinished.shouldPreserveOnRecovery(completed))
+        assertFalse(opened.shouldPreserveOnRecovery(completed))
+    }
 }
