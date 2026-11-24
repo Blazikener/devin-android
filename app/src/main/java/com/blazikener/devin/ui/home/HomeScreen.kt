@@ -313,8 +313,10 @@ private fun HomeCreateRecovery(
     onClear: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    var reviewOriginal by rememberSaveable(submitted?.request?.prompt) { mutableStateOf(false) }
-    var reviewClear by rememberSaveable(submitted?.draftVersion) { mutableStateOf(false) }
+    // A process-restored Home may show a different fallback attempt. Require a fresh
+    // review instead of restoring a destructive confirmation onto that other task.
+    var review by remember(submitted) { mutableStateOf<RecoveryReview?>(null) }
+    val reviewClear = review == RecoveryReview.Clear
     Surface(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         shape = MaterialTheme.shapes.medium,
@@ -344,17 +346,17 @@ private fun HomeCreateRecovery(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (hasSession) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open session") }
                 TextButton(onClick = onCheck, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check sessions") }
-                if (submitted != null) TextButton(onClick = { reviewClear = false; reviewOriginal = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                if (submitted != null) TextButton(onClick = { review = RecoveryReview.Original }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (!hasSession && canRetry) "Review retry" else "Review task and settings")
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Dismiss") }
                 if (!hasSession) TextButton(onClick = {
-                    if (submitted == null) onClear() else { reviewClear = true; reviewOriginal = true }
+                    if (submitted == null) onClear() else { review = RecoveryReview.Clear }
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
             }
         }
     }
-    if (reviewOriginal && submitted != null) ModalBottomSheet(onDismissRequest = { reviewOriginal = false }) {
+    if (review != null && submitted != null) ModalBottomSheet(onDismissRequest = { review = null }) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -363,12 +365,14 @@ private fun HomeCreateRecovery(
             if (reviewClear) Text("This clears this saved draft and its attached-file choices. A session that already started will not be deleted. Sending this task again can create another session.")
             else if (!hasSession) Text("Starting this task again may create a duplicate session. These original settings will be sent, not your current edits.")
             CreateRequestDetails(submitted)
-            if (reviewClear) OutlinedButton(onClick = { reviewOriginal = false; onClear() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
-            else if (!hasSession && canRetry) OutlinedButton(onClick = { reviewOriginal = false; onRetry() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
-            TextButton(onClick = { reviewOriginal = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (reviewClear) "Cancel" else "Close") }
+            if (reviewClear) OutlinedButton(onClick = { review = null; onClear() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear original task") }
+            else if (!hasSession && canRetry) OutlinedButton(onClick = { review = null; onRetry() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Start again anyway") }
+            TextButton(onClick = { review = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (reviewClear) "Cancel" else "Close") }
         }
     }
 }
+
+private enum class RecoveryReview { Original, Clear }
 
 @Composable
 private fun HomeAttention(count: Int, onClick: () -> Unit) {
