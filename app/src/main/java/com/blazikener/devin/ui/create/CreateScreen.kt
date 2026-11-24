@@ -86,7 +86,13 @@ fun CreateScreen(
         }
         vm.clearError()
     }
-    LaunchedEffect(Unit) { update(form) }
+    // Arguments are saved once per entry; Back and rotation must not rewrite a newer draft.
+    LaunchedEffect(Unit) {
+        if (vm.ui.value.sessionId == null && form != lastSavedForm) {
+            graph.settings.saveNewSessionDraft(form)
+            lastSavedForm = form
+        }
+    }
     LaunchedEffect(submission.sessionId) {
         submission.sessionId?.let {
             onCreated(it)
@@ -187,7 +193,9 @@ fun CreateScreen(
         },
     ) { padding ->
         if (busy) {
-            if (submission.submitting) SessionLaunchCue(Modifier.padding(padding).fillMaxSize())
+            if (submission.submitting) Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                SessionLaunchCue(Modifier.fillMaxWidth())
+            }
         } else Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = DevinDimens.screenPadding).padding(top = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
