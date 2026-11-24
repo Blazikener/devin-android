@@ -41,7 +41,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,19 +53,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blazikener.devin.data.CreateSessionRequest
 import com.blazikener.devin.data.DEVIN_MODES
-import com.blazikener.devin.data.DraftAttachment
 import com.blazikener.devin.data.NewSessionDraft
 import com.blazikener.devin.data.Playbook
 import com.blazikener.devin.data.Repository
 import com.blazikener.devin.data.json
 import com.blazikener.devin.graph
-import kotlinx.coroutines.Dispatchers
+import com.blazikener.devin.ui.components.AttachmentUploadChip
+import com.blazikener.devin.ui.components.AttachmentUploadsViewModel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private data class Upload(val name: String, val url: String?, val error: String?)
 
 private val DraftSaver = Saver<NewSessionDraft, String>(
     save = { json.encodeToString(NewSessionDraft.serializer(), it) },
@@ -89,11 +87,19 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
     var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
     val playbook = playbooks.firstOrNull { it.id == form.playbookId }
     var repoQuery by remember { mutableStateOf("") }
-    val failedUploads = remember { mutableStateListOf<Upload>() }
-    var uploading by remember { mutableStateOf(0) }
+    val attachmentVm: AttachmentUploadsViewModel = viewModel { AttachmentUploadsViewModel(ctx.applicationContext, g.api) }
+    val uploads by attachmentVm.uploads.items.collectAsStateWithLifecycle()
 
     // Saved on every edit so the form survives Back, leaving the app, and process death.
     LaunchedEffect(form) { if (!created) g.settings.saveNewSessionDraft(form) }
+
+    LaunchedEffect(uploads) {
+        val completed = attachmentVm.uploads.items.value.filter { it.result != null }
+        if (completed.isNotEmpty()) {
+            form = form.copy(attachments = form.attachments + completed.mapNotNull { it.result })
+            completed.forEach { attachmentVm.uploads.remove(it.id) }
+        }
+    }
 
     LaunchedEffect(Unit) {
         launch {
@@ -132,24 +138,11 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        uris.forEach { uri ->
-            uploading++
-            scope.launch {
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
-                val r = runCatching {
-                    val bytes = withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
-                    g.api.upload(name, ctx.contentResolver.getType(uri) ?: "application/octet-stream", bytes)
-                }
-                r.fold(
-                    { form = form.copy(attachments = form.attachments + DraftAttachment(it.name, it.url)) },
-                    { failedUploads += Upload(name, null, it.message) },
-                )
-                uploading--
-            }
-        }
+        uris.forEach(attachmentVm.uploads::add)
     }
 
     fun create() {
+        if (busy || attachmentVm.uploads.items.value.isNotEmpty()) return
         val prompt = form.prompt
         if (prompt.isBlank()) { error = "Tell Devin what to do"; return }
         busy = true; error = null
@@ -192,21 +185,18 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                 modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp).testTag("prompt"),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { picker.launch("*/*") }) {
+                OutlinedButton(onClick = { picker.launch("*/*") }, enabled = !busy) {
                     Icon(Icons.Outlined.AttachFile, null, Modifier.size(18.dp)); Text(" Attach")
                 }
-                if (uploading > 0) CircularProgressIndicator(Modifier.padding(start = 12.dp).size(18.dp), strokeWidth = 2.dp)
             }
-            if (form.attachments.isNotEmpty() || failedUploads.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (form.attachments.isNotEmpty() || uploads.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 form.attachments.forEach { a ->
-                    InputChip(selected = false, onClick = { form = form.copy(attachments = form.attachments - a) },
+                    InputChip(selected = false, onClick = { form = form.copy(attachments = form.attachments - a) }, enabled = !busy,
                         label = { Text(a.name) },
-                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove", Modifier.size(16.dp)) })
+                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove ${a.name}", Modifier.size(16.dp)) })
                 }
-                failedUploads.toList().forEach { u ->
-                    InputChip(selected = true, onClick = { failedUploads.remove(u) },
-                        label = { Text("${u.name} — failed") },
-                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove", Modifier.size(16.dp)) })
+                uploads.forEach { upload ->
+                    AttachmentUploadChip(upload) { attachmentVm.uploads.remove(upload.id) }
                 }
             }
             Text("Mode", style = MaterialTheme.typography.labelLarge)
@@ -245,10 +235,11 @@ fun CreateScreen(initialPrompt: String?, onBack: () -> Unit, onCreated: (String)
                 modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = ::create, enabled = !busy && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
+            Button(onClick = ::create, enabled = !busy && uploads.isEmpty(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Start session")
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); error = null }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = { form = defaults; attachmentVm.uploads.clear(); error = null },
+                enabled = !busy && (form != defaults || uploads.isNotEmpty())) { Text("Clear") }
         }
     }
 }

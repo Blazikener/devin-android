@@ -23,6 +23,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - run: python3 -m unittest discover -s tools
       - run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease
       - name: Prepare latest release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

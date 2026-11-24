@@ -37,7 +37,6 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -52,7 +51,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -101,10 +99,12 @@ import com.blazikener.devin.data.SessionAttachment
 import com.blazikener.devin.data.SessionMessage
 import com.blazikener.devin.data.SessionState
 import com.blazikener.devin.graph
+import com.blazikener.devin.ui.components.AttachmentUploadChip
 import com.blazikener.devin.ui.components.Markdown
 import com.blazikener.devin.ui.components.StatusPill
 import com.blazikener.devin.ui.components.StatusDot
 import com.blazikener.devin.ui.components.openUrl
+import com.blazikener.devin.ui.components.readyAttachmentUrls
 import com.blazikener.devin.ui.components.relativeTime
 import com.blazikener.devin.ui.components.shareText
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +118,7 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     val g = ctx.graph
     val vm: SessionViewModel = viewModel(key = id) { SessionViewModel(g, ctx.applicationContext, id) }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val uploads by vm.uploads.items.collectAsStateWithLifecycle()
     val settings by g.settings.settings.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf(sharedText ?: vm.draft()) }
     val snack = remember { SnackbarHostState() }
@@ -136,7 +137,9 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs); vm.stopPolling() }
     }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> uris.forEach(vm::addFile) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        uris.forEach(vm.uploads::add)
+    }
 
     // The list is reverse-laid-out (index 0 = newest), so it opens at the latest message and stays
     // pinned there when the keyboard shrinks the viewport.
@@ -151,8 +154,7 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
     LaunchedEffect(newest, s?.state?.isActive) { if (newest != null && (followNewest || mineNewest)) list.animateScrollToItem(0) }
 
     fun send() {
-        if (!vm.canSend) return
-        vm.send(input); input = ""
+        if (vm.send(input)) input = ""
     }
     fun act(label: String, block: suspend () -> com.blazikener.devin.data.Session) =
         vm.act(block) { err -> scope.launch { snack.showSnackbar(err ?: label) } }
@@ -223,19 +225,14 @@ fun SessionScreen(id: String, sharedText: String? = null, onBack: () -> Unit, on
                 SessionState.Blocked -> Banner(Icons.Outlined.ErrorOutline, "This session hit a usage or ACU limit. Raise the limit or reply to resume.")
                 else -> {}
             }
-            if (ui.drafts.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ui.drafts.forEach { d ->
-                    InputChip(
-                        selected = d.error != null, onClick = { vm.removeDraft(d) },
-                        label = { Text(if (d.error != null) "${d.name} — failed" else d.name, maxLines = 1) },
-                        leadingIcon = { if (d.uploading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) else Icon(Icons.Outlined.Description, null, Modifier.size(16.dp)) },
-                        trailingIcon = { Icon(Icons.Outlined.Close, "Remove", Modifier.size(16.dp)) },
-                    )
+            if (uploads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                uploads.forEach { upload ->
+                    AttachmentUploadChip(upload) { vm.uploads.remove(upload.id) }
                 }
             }
             Composer(
                 value = input, onChange = { input = it }, enterToSend = settings.enterToSend,
-                canSend = (input.isNotBlank() || ui.drafts.any { it.uploadedUrl != null }) && ui.drafts.none { it.uploading },
+                canSend = uploads.readyAttachmentUrls()?.let { input.isNotBlank() || it.isNotEmpty() } == true,
                 hint = when (s?.state) {
                     SessionState.Sleeping, SessionState.Finished -> "Message to wake Devin…"
                     SessionState.NeedsYou -> "Reply to Devin…"
