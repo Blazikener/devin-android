@@ -15,7 +15,11 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody
+import okio.Buffer
+import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
 class ApiException(val code: Int, message: String) : IOException(message) {
@@ -156,14 +160,52 @@ class DevinApi(
     suspend fun playbooks(first: Int = 200, after: String? = null): Page<Playbook> =
         json.decodeFromString(get("/v3/organizations/${org()}/playbooks", listOf("first" to "$first", "include_enterprise" to "true", "after" to after)))
 
-    /** Downloads an auth-gated attachment. */
-    suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
+    /** Small in-memory previews only. Exports stream through [downloadTo]. */
+    suspend fun download(url: String, maxBytes: Long = Long.MAX_VALUE): ByteArray = downloadBody(url) { body ->
+        // Segments avoid ByteArrayOutputStream's doubling array plus final full-size copy.
+        val buffer = Buffer()
+        body.copyBoundedTo(buffer.outputStream(), maxBytes)
+        buffer.readByteArray()
+    }
+
+    /** The destination is owned by this operation; incomplete files are never retained. */
+    suspend fun downloadTo(url: String, destination: File, maxBytes: Long) {
+        try {
+            downloadBody(url) { body -> destination.outputStream().use { body.copyBoundedTo(it, maxBytes) } }
+        } catch (failure: Exception) {
+            destination.delete()
+            throw failure
+        }
+    }
+
+    private suspend fun <T> downloadBody(url: String, read: (ResponseBody) -> T): T = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(url).apply {
             if (sameOrigin(url, baseUrl())) auth()
         }.build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw ApiException(resp.code, "Download failed (${resp.code})")
-            resp.body!!.bytes()
+            val body = resp.body ?: throw IOException("Empty download")
+            read(body)
+        }
+    }
+
+    private fun ResponseBody.copyBoundedTo(output: OutputStream, maxBytes: Long) {
+        require(maxBytes >= 0)
+        val expected = contentLength()
+        if (expected > maxBytes) throw DocumentTooLargeException()
+        byteStream().use { input ->
+            val buffer = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > maxBytes) throw DocumentTooLargeException()
+                output.write(buffer, 0, count)
+            }
+            if (expected >= 0 && total != expected) throw IOException("Incomplete download")
         }
     }
 }
+
+class DocumentTooLargeException : IOException("This file is too large to preview")

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayOutputStream
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -152,5 +153,60 @@ class DevinApiTest {
         assertFalse(sameOrigin("https://api.devin.ai.attacker.example/x", "https://api.devin.ai"))
         assertFalse(sameOrigin("https://api.devin.ai:8443/x", "https://api.devin.ai"))
         assertFalse(sameOrigin("http://api.devin.ai/x", "https://api.devin.ai"))
+    }
+
+    @Test
+    fun limitedDownloadRejectsDeclaredAndChunkedOversizeBodies() = runBlocking {
+        server.enqueue(MockResponse().setBody("123456"))
+        server.enqueue(MockResponse().setChunkedBody("123456", 2))
+        repeat(2) {
+            val failure = runCatching { api.download(server.url("/file").toString(), maxBytes = 5) }.exceptionOrNull()
+            assertTrue(failure is DocumentTooLargeException)
+        }
+    }
+
+    @Test
+    fun downloadRejectsHttp2StreamShorterThanDeclaredLength() = runBlocking {
+        server.protocols = listOf(Protocol.H2_PRIOR_KNOWLEDGE)
+        val http2 = DevinApi({ server.url("/").toString() }, { "cog_x" }, { "org-1" },
+            OkHttpClient.Builder().protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE)).build())
+        server.enqueue(MockResponse().setBody("part").setHeader("Content-Length", 10))
+
+        val failure = runCatching { http2.download(server.url("/report.md").toString(), 20) }.exceptionOrNull()
+
+        assertTrue("Incomplete content must not become a saved document", failure is java.io.IOException)
+    }
+
+    @Test
+    fun exportStreamsLargeFilesAndRemovesIncompleteDestinations() = runBlocking {
+        val destination = java.io.File.createTempFile("reader-export", ".bin")
+        try {
+            val body = okio.Buffer()
+            repeat(17 * 1024) { body.write(ByteArray(1024) { 7 }) }
+            server.enqueue(MockResponse().setBody(body))
+            api.downloadTo(server.url("/large.bin").toString(), destination, 20 * 1024 * 1024)
+            assertEquals(17 * 1024 * 1024L, destination.length())
+            destination.inputStream().use { assertEquals(7, it.read()) }
+            assertEquals("Bearer cog_x", server.takeRequest().getHeader("Authorization"))
+
+            server.enqueue(MockResponse().setChunkedBody("too large", 2))
+            val failure = runCatching { api.downloadTo(server.url("/large.bin").toString(), destination, 5) }.exceptionOrNull()
+            assertTrue(failure is DocumentTooLargeException)
+            assertFalse("No partial export should be offered to another app", destination.exists())
+        } finally { destination.delete() }
+    }
+
+    @Test
+    fun limitedDownloadKeepsSameOriginAuthButNeverSendsItToAnotherOrigin() = runBlocking {
+        server.enqueue(MockResponse().setBody("text"))
+        assertEquals("text", api.download(server.url("/report.md").toString(), 10).decodeToString())
+        assertEquals("Bearer cog_x", server.takeRequest().getHeader("Authorization"))
+        val external = MockWebServer()
+        external.start()
+        try {
+            external.enqueue(MockResponse().setBody("public"))
+            assertEquals("public", api.download(external.url("/file").toString(), 10).decodeToString())
+            assertEquals(null, external.takeRequest().getHeader("Authorization"))
+        } finally { external.shutdown() }
     }
 }
