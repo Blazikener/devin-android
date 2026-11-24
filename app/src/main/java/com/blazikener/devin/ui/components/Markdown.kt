@@ -148,28 +148,53 @@ object MarkdownParser {
     }.trim()
 
     private val inline = Regex(
-        """(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\[[^\]]+]\([^)\s]+\))|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
+        """(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(?:!\[[^\]]*]|\[[^\]]+])\(|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
     )
+
+    private fun destinationEnd(text: String, start: Int): Int? {
+        var depth = 0
+        for (i in start until text.length) {
+            val c = text[i]
+            when {
+                c == '(' -> depth++
+                c == ')' -> {
+                    if (depth == 0) return i.takeIf { it > start }
+                    depth--
+                }
+                c.isWhitespace() -> return null
+            }
+        }
+        return null
+    }
 
     fun inline(text: String, codeBg: Color, link: Color): AnnotatedString = buildAnnotatedString {
         var last = 0
-        for (m in inline.findAll(text)) {
+        while (true) {
+            val m = inline.find(text, last) ?: break
             append(text.substring(last, m.range.first))
             val t = m.value
+            last = m.range.last + 1
             when {
                 t.startsWith("`") -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 13.sp)) { append(t.trim('`')) }
                 t.startsWith("**") || t.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("~~") -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
-                t.startsWith("[") -> {
-                    val label = t.substring(1, t.indexOf("]("))
-                    val url = t.substring(t.indexOf("](") + 2, t.length - 1)
-                    withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = link)))) { append(label) }
+                t.startsWith("[") || t.startsWith("![") -> {
+                    val end = destinationEnd(text, last)
+                    if (end == null) {
+                        append(t)
+                    } else {
+                        val label = t.substring(t.indexOf('[') + 1, t.length - 2)
+                        val url = text.substring(last, end)
+                        withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = link)))) {
+                            append(if (t.startsWith("!") && label.isBlank()) "Image" else label)
+                        }
+                        last = end + 1
+                    }
                 }
                 t.startsWith("http") -> withLink(LinkAnnotation.Url(t, TextLinkStyles(SpanStyle(color = link)))) { append(t) }
                 t.startsWith("*") -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(inline(t.substring(1, t.length - 1), codeBg, link)) }
                 else -> append(t)
             }
-            last = m.range.last + 1
         }
         append(text.substring(last))
     }

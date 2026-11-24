@@ -1,5 +1,7 @@
 package com.blazikener.devin.ui.components
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -72,6 +74,46 @@ class MarkdownParserTest {
                 "val x = 1",
             MarkdownParser.plain("I've received your request: **Please continue**\n\nUse `ApiException`\n- Retry [the docs](https://x.y)\n```kotlin\nval x = 1\n```"),
         )
+    }
+
+    @Test
+    fun linksKeepBalancedParenthesesInDestination() {
+        val wiki = "https://en.wikipedia.org/wiki/Foo_(bar)"
+        val nested = "https://example.com/foo_(a(b)c).html"
+        val rendered = MarkdownParser.inline("See [Wiki]($wiki), then [Example]($nested).", Color.Unspecified, Color.Unspecified)
+
+        assertEquals("See Wiki, then Example.", rendered.text)
+        assertEquals(
+            listOf("Wiki" to wiki, "Example" to nested),
+            rendered.getLinkAnnotations(0, rendered.length).map {
+                rendered.text.substring(it.start, it.end) to (it.item as LinkAnnotation.Url).url
+            },
+        )
+    }
+
+    @Test
+    fun imagesUseAltTextAsClickableLabel() {
+        val url = "https://example.com/chart_(final).png"
+        val markdown = "See ![Final chart]($url) and ![]($url)."
+        val rendered = MarkdownParser.inline(markdown, Color.Unspecified, Color.Unspecified)
+
+        assertEquals("See Final chart and Image.", rendered.text)
+        assertEquals(rendered.text, MarkdownParser.plain(markdown))
+        assertEquals(
+            listOf("Final chart" to url, "Image" to url),
+            rendered.getLinkAnnotations(0, rendered.length).map {
+                rendered.text.substring(it.start, it.end) to (it.item as LinkAnnotation.Url).url
+            },
+        )
+    }
+
+    @Test
+    fun unclosedDestinationDoesNotConsumeFollowingLink() {
+        val rendered = MarkdownParser.inline("[broken](foo(bar) then [valid](path)", Color.Unspecified, Color.Unspecified)
+
+        assertEquals("[broken](foo(bar) then valid", rendered.text)
+        val link = rendered.getLinkAnnotations(0, rendered.length).single()
+        assertEquals("path", (link.item as LinkAnnotation.Url).url)
     }
 
     @Test
