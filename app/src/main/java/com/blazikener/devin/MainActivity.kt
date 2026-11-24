@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
                             onSessions = { filter, search ->
                                 nav.navigateRoot(Routes.sessions(filter, search))
                             },
-                            onNewForm = { nav.navigate(Routes.create(it)) },
+                            onNewForm = { prompt, mode -> nav.navigate(Routes.create(prompt, mode)) },
                             onSettings = { nav.navigate("settings") },
                         )
                     }
@@ -126,9 +126,12 @@ class MainActivity : ComponentActivity() {
                         val id = e.arguments!!.getString("id")!!
                         SessionScreen(id, onBack = { nav.back() }, onOpenSession = { nav.navigate(Routes.session(it)) })
                     }
-                    composable(Routes.Create, arguments = listOf(navArgument("prompt") { type = NavType.StringType; defaultValue = "" })) { e ->
+                    composable(Routes.Create, arguments = listOf(
+                        navArgument("prompt") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    )) { e ->
                         val p = e.arguments?.getString("prompt")?.ifEmpty { null }
-                        CreateScreen(p, onBack = { nav.back() }, onCreated = { id ->
+                        CreateScreen(p, modeOverride = e.arguments?.getString("mode"), onBack = { nav.back() }, onCreated = { id ->
                             nav.navigate(Routes.session(id)) { popUpTo(Routes.Create) { inclusive = true } }
                         })
                     }

@@ -22,7 +22,7 @@ data class NewSessionDraft(
     val attachments: List<DraftAttachment> = emptyList(),
 ) {
     val isEmpty: Boolean
-        get() = prompt.isBlank() && title.isBlank() && tags.isBlank() && repos.isEmpty() && playbookId == null && attachments.isEmpty()
+        get() = prompt.isBlank() && title.isBlank() && tags.isBlank() && acu.isBlank() && mode == null && repos.isEmpty() && playbookId == null && attachments.isEmpty()
 
     /** Shared text is added to whatever is already drafted so an unfinished prompt is never overwritten. */
     fun withShared(text: String?): NewSessionDraft =

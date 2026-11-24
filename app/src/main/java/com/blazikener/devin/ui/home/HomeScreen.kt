@@ -97,6 +97,7 @@ import com.blazikener.devin.data.SessionFilter
 import com.blazikener.devin.graph
 import com.blazikener.devin.notify.SessionWatcher
 import com.blazikener.devin.ui.components.DevinOrb
+import com.blazikener.devin.ui.create.createModeOverride
 import com.blazikener.devin.ui.components.DevinRootShell
 import com.blazikener.devin.ui.navigation.RootDestination
 import com.blazikener.devin.ui.components.StatusDot
@@ -111,7 +112,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onOpen: (String) -> Unit,
     onSessions: (filter: SessionFilter?, search: Boolean) -> Unit,
-    onNewForm: (prompt: String) -> Unit,
+    onNewForm: (prompt: String, modeOverride: String?) -> Unit,
     onSettings: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -192,7 +193,7 @@ fun HomeScreen(
         onHome = {}, onSessions = { onSessions(null, false) },
         onNeedsYou = { onSessions(SessionFilter.NeedsYou, false) },
         onSearch = { onSessions(null, true) }, onSettings = onSettings,
-        onOpen = onOpen, onNew = { onNewForm("") },
+        onOpen = onOpen, onNew = { onNewForm("", null) },
     ) { openMenu ->
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -291,7 +292,7 @@ fun HomeScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                if (compactIme) HomeMoreOptionsButton(prompt, ::updatePrompt) { onNewForm(it, createModeOverride(modeChosen, chosenMode)) }
                                 HomePromptField(
                                     prompt = prompt,
                                     onPromptChange = ::updatePrompt,
@@ -313,7 +314,7 @@ fun HomeScreen(
                             if (!compactIme) {
                                 Spacer(Modifier.height(10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    HomeMoreOptionsButton(prompt, ::updatePrompt, onNewForm)
+                                    HomeMoreOptionsButton(prompt, ::updatePrompt) { onNewForm(it, createModeOverride(modeChosen, chosenMode)) }
                                     Spacer(Modifier.width(8.dp))
                                     val modeLabel = DEVIN_MODES.firstOrNull { it.first == mode }?.second ?: "Default"
                                     Row(

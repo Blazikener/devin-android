@@ -17,6 +17,21 @@ import org.junit.Before
 import org.junit.Test
 
 class DevinApiTest {
+    @Test
+    fun streamsPickedFileWithItsDisplayName() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"attachment_id":"file-1","name":"my note.txt","url":"https://example.test/note.txt"}"""))
+        val file = java.io.File.createTempFile("upload-test", ".txt")
+        try {
+            file.writeText("file contents")
+            api.upload("my note.txt", "text/plain", file)
+            val request = server.takeRequest()
+            val body = request.body.readUtf8()
+            assertEquals("/v3/organizations/org-1/attachments", request.path)
+            assertTrue(body.contains("filename=\"my note.txt\""))
+            assertTrue(body.contains("\r\n\r\nfile contents\r\n"))
+        } finally { file.delete() }
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var api: DevinApi
 

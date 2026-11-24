@@ -15,8 +15,10 @@ class NewSessionDraftTest {
         assertEquals("keep", NewSessionDraft(prompt = "keep").withShared(null).prompt)
     }
 
-    @Test fun modeAndAcuAloneDoNotMakeADraft() {
-        assertTrue(NewSessionDraft(mode = "fast", acu = "10").isEmpty)
+    @Test fun setupOnlyDraftsAreNotDiscarded() {
+        assertFalse(NewSessionDraft(mode = "fast").isEmpty)
+        assertFalse(NewSessionDraft(acu = "10").isEmpty)
+        assertTrue(NewSessionDraft().isEmpty)
         assertFalse(NewSessionDraft(repos = listOf("acme/web")).isEmpty)
         assertFalse(NewSessionDraft(attachments = listOf(DraftAttachment("a.txt", "https://u"))).isEmpty)
     }

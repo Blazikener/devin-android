@@ -14,6 +14,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
 import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -140,6 +142,15 @@ class DevinApi(
 
     suspend fun attachments(id: String): List<SessionAttachment> =
         json.decodeFromString(get("/v3/organizations/${org()}/sessions/$id/attachments"))
+
+    suspend fun upload(name: String, mime: String, file: File): UploadedAttachment {
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", name, file.asRequestBody(mime.toMediaType()))
+            .build()
+        return json.decodeFromString(
+            execute(Request.Builder().url(url("/v3/organizations/${org()}/attachments")).auth().post(body).build())
+        )
+    }
 
     suspend fun upload(name: String, mime: String, bytes: ByteArray): UploadedAttachment {
         val body: RequestBody = MultipartBody.Builder().setType(MultipartBody.FORM)
