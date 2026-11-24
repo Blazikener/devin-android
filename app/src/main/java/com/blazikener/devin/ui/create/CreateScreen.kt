@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,14 +89,32 @@ fun CreateScreen(
     val settings = g.settings.value
     val scope = rememberCoroutineScope()
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
-    var form by rememberSaveable(stateSaver = DraftSaver) {
-        mutableStateOf(g.settings.newSessionDraft().withCreateArguments(initialPrompt, modeOverride))
+    val formState = rememberSaveable(stateSaver = DraftSaver) {
+        val draft = g.settings.newSessionDraft()
+        val alreadySubmitted = initialPrompt != null && draft.prompt.trim() == initialPrompt.trim() &&
+            g.createGate.attempts.value.any { it.matches(initialPrompt) }
+        mutableStateOf(draft.withCreateArguments(initialPrompt.takeUnless { alreadySubmitted }, modeOverride))
+    }
+    var form by remember<MutableState<NewSessionDraft>>(formState) {
+        object : MutableState<NewSessionDraft> by formState {
+            override var value: NewSessionDraft
+                get() = formState.value
+                set(value) {
+                    g.settings.saveNewSessionDraft(value)
+                    formState.value = value
+                }
+        }
     }
     val vm: CreateSessionViewModel = viewModel {
-        CreateSessionViewModel(g.api::createSession, g.settings.createAttempts)
+        CreateSessionViewModel(g.createGate)
     }
     val submission by vm.ui.collectAsStateWithLifecycle()
-    val busy = submission.submitting || submission.sessionId != null
+    val attempts by g.createGate.attempts.collectAsStateWithLifecycle()
+    val inFlight by g.createGate.inFlight.collectAsStateWithLifecycle()
+    val matching = attempts.firstOrNull { it.matches(form.prompt) }
+    val recovered = submission.sessionId ?: matching?.sessionId
+    val warning = matching?.takeIf { it.sessionId == null && (!it.dismissed || submission.confirmation == it) }
+    val busy = inFlight || submission.submitting || recovered != null
     var repos by remember { mutableStateOf<List<Repository>>(emptyList()) }
     var playbooks by remember { mutableStateOf<List<Playbook>>(emptyList()) }
     val playbook = playbooks.firstOrNull { it.id == form.playbookId }
@@ -104,13 +123,8 @@ fun CreateScreen(
     var uploading by remember { mutableStateOf(0) }
 
     // Saved on every edit so the form survives Back, leaving the app, and process death.
-    LaunchedEffect(form) { if (vm.ui.value.sessionId == null) g.settings.saveNewSessionDraft(form) }
-    LaunchedEffect(submission.sessionId) {
-        submission.sessionId?.let {
-            onCreated(it)
-            vm.acknowledgeCreated(it)
-        }
-    }
+    LaunchedEffect(Unit) { if (recovered == null) g.settings.saveNewSessionDraft(form) }
+    LaunchedEffect(recovered) { recovered?.let(onCreated) }
 
     LaunchedEffect(Unit) {
         launch {
@@ -184,17 +198,15 @@ fun CreateScreen(
                     }
                 },
             )
-            if (submission.uncertain) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    Text("The previous session may already have started. Check Recents before retrying.", color = MaterialTheme.colorScheme.error)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = onCheckRecents) { Text("Check Recents") }
-                        TextButton(
-                            onClick = { vm.submit(form, settings.createAsUserId, confirmedRetry = true) },
-                            enabled = form.prompt.isNotBlank() && uploading == 0,
-                        ) { Text("Retry anyway") }
-                    }
-                }
+            if (warning != null && !busy) {
+                CreateRecoveryWarning(
+                    onCheckRecents = onCheckRecents,
+                    onDismiss = { vm.dismiss(warning) },
+                    onRetry = if (form.prompt.isNotBlank() && uploading == 0) {
+                        { vm.submit(form, settings.createAsUserId, retry = warning) }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
             }
         }
     }) { pad ->
@@ -260,10 +272,12 @@ fun CreateScreen(
                 modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
             submission.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = { vm.submit(form, settings.createAsUserId) }, enabled = !busy && !submission.uncertain && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
+            Button(onClick = {
+                vm.submit(form, settings.createAsUserId, draftVersion = g.settings.saveNewSessionDraft(form))
+            }, enabled = !busy && warning == null && uploading == 0, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("create")) {
                 Text("Start session")
             }
-            TextButton(onClick = { form = defaults; failedUploads.clear(); vm.clearError() }, enabled = form != defaults || failedUploads.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = { vm.clear(matching); form = defaults; failedUploads.clear() }, enabled = !busy && (form != defaults || failedUploads.isNotEmpty() || matching != null)) { Text("Clear") }
         }
     }
 }

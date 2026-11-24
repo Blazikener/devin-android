@@ -2,12 +2,14 @@ package com.blazikener.devin.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 @Serializable
 data class DraftAttachment(val name: String, val url: String)
@@ -98,8 +100,12 @@ class SettingsStore(context: Context) {
         // Older versions stored only the prompt, as plain text under another key.
         return fresh.copy(prompt = drafts.getString(LEGACY_NEW_SESSION_KEY, "").orEmpty())
     }
-    fun saveNewSessionDraft(d: NewSessionDraft) {
-        drafts.edit().writeNewSessionDraft(d).apply()
+    internal fun saveNewSessionDraft(d: NewSessionDraft): String = synchronized(drafts) {
+        val previous = drafts.getString(DRAFT_VERSION_KEY, null)
+        if (previous != null && d == newSessionDraft()) return@synchronized previous
+        val version = UUID.randomUUID().toString()
+        drafts.edit().writeNewSessionDraft(d).putString(DRAFT_VERSION_KEY, version).apply()
+        version
     }
 
     private fun SharedPreferences.Editor.writeNewSessionDraft(d: NewSessionDraft) = apply {
@@ -108,27 +114,31 @@ class SettingsStore(context: Context) {
     }
 
     internal val createAttempts: CreateAttemptStore = object : CreateAttemptStore {
-        override fun read(): CreateAttempt? = when (val value = drafts.getString(CREATE_ATTEMPT_KEY, null)) {
-            null -> null
-            "" -> CreateAttempt.Pending
-            else -> CreateAttempt.Created(value)
+        override fun read(): List<CreateAttempt> {
+            drafts.getString(CREATE_ATTEMPTS_KEY, null)?.let { return json.decodeFromString(it) }
+            val legacy = drafts.getString(CREATE_ATTEMPT_KEY, null) ?: return emptyList()
+            val draft = newSessionDraft()
+            val sessionId = legacy.ifEmpty { null }
+            val submitted = if (sessionId == null) {
+                CreateSnapshot(draft.toCreateRequest(null), draft, drafts.getString(DRAFT_VERSION_KEY, LEGACY_DRAFT_VERSION)!!)
+            } else null
+            return listOf(CreateAttempt(createFingerprint(draft.prompt), 0, sessionId, submitted = submitted))
         }
 
-        override suspend fun write(attempt: CreateAttempt?, draft: NewSessionDraft?): Boolean =
+        override suspend fun write(attempts: List<CreateAttempt>, consumeDraftVersion: String?): Boolean =
             withContext(Dispatchers.IO) {
-                drafts.edit().apply {
-                    when (attempt) {
-                        null -> remove(CREATE_ATTEMPT_KEY)
-                        CreateAttempt.Pending -> putString(CREATE_ATTEMPT_KEY, "")
-                        is CreateAttempt.Created -> putString(CREATE_ATTEMPT_KEY, attempt.sessionId)
-                    }
-                    if (draft != null) writeNewSessionDraft(draft)
-                }.commit()
+                synchronized(drafts) {
+                    drafts.edit().apply {
+                        remove(CREATE_ATTEMPT_KEY)
+                        if (attempts.isEmpty()) remove(CREATE_ATTEMPTS_KEY)
+                        else putString(CREATE_ATTEMPTS_KEY, json.encodeToString(attempts))
+                        if (consumeDraftVersion != null && consumeDraftVersion == drafts.getString(DRAFT_VERSION_KEY, LEGACY_DRAFT_VERSION)) {
+                            writeNewSessionDraft(NewSessionDraft())
+                            remove(DRAFT_VERSION_KEY)
+                        }
+                    }.commit()
+                }
             }
-
-        override fun acknowledgeCreated(sessionId: String) {
-            if (read() == CreateAttempt.Created(sessionId)) drafts.edit().remove(CREATE_ATTEMPT_KEY).apply()
-        }
     }
 
     fun clearDrafts() { drafts.edit().clear().apply(); outbox.edit().clear().apply() }
@@ -144,6 +154,9 @@ class SettingsStore(context: Context) {
         const val NEW_SESSION_KEY = "__new_session__"
         const val LEGACY_NEW_SESSION_KEY = "__new__"
         const val CREATE_ATTEMPT_KEY = "__new_session_attempt__"
+        const val CREATE_ATTEMPTS_KEY = "__create_attempts__"
+        const val DRAFT_VERSION_KEY = "__new_session_version__"
+        const val LEGACY_DRAFT_VERSION = "legacy"
     }
 
     private val pins = context.getSharedPreferences("pins", Context.MODE_PRIVATE)

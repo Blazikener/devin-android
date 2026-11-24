@@ -41,6 +41,7 @@ class SessionsViewModelTest {
 
     private fun model(
         perform: suspend (String, SessionAction) -> Session = { _, _ -> error("Unexpected action") },
+        allUsers: Boolean = false,
         fetch: suspend (Int, String?, Boolean, List<String>?) -> Page<Session>,
     ) = SessionsViewModel(
         userId = "me",
@@ -50,7 +51,19 @@ class SessionsViewModelTest {
         pinned = MutableStateFlow(emptySet()),
         changePin = {},
         perform = perform,
+        allUsers = allUsers,
     ).also { models.add(it) }
+
+    @Test
+    fun createRecoveryStartsWithOrganizationFeedAndShowsOtherUsersSession() = runTest {
+        val vm = model(allUsers = true) { _, _, _, users ->
+            assertEquals(null, users)
+            Page(listOf(other))
+        }
+        runCurrent()
+        assertFalse(vm.ui.value.mineOnly)
+        assertEquals(listOf(other), vm.ui.value.visible)
+    }
 
     @Test
     fun delayedAllResponseCannotReplaceMineOrItsCache() = runTest {

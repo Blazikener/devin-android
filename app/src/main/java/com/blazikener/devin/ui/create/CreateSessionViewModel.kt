@@ -2,13 +2,11 @@ package com.blazikener.devin.ui.create
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.blazikener.devin.data.ApiException
 import com.blazikener.devin.data.CreateAttempt
-import com.blazikener.devin.data.CreateAttemptStore
-import com.blazikener.devin.data.CreateSessionRequest
+import com.blazikener.devin.data.CreateResult
+import com.blazikener.devin.data.CreateSessionGate
 import com.blazikener.devin.data.NewSessionDraft
-import com.blazikener.devin.data.Session
-import kotlinx.coroutines.CancellationException
+import com.blazikener.devin.data.toCreateRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -17,65 +15,49 @@ internal data class CreateSessionUi(
     val submitting: Boolean = false,
     val sessionId: String? = null,
     val error: String? = null,
-    val uncertain: Boolean = false,
+    val confirmation: CreateAttempt? = null,
 )
 
-internal class CreateSessionViewModel(
-    private val createSession: suspend (CreateSessionRequest) -> Session,
-    private val attempts: CreateAttemptStore,
-) : ViewModel() {
-    private val _ui = MutableStateFlow(
-        when (val attempt = attempts.read()) {
-            null -> CreateSessionUi()
-            CreateAttempt.Pending -> CreateSessionUi(uncertain = true)
-            is CreateAttempt.Created -> CreateSessionUi(sessionId = attempt.sessionId)
-        },
-    )
+internal class CreateSessionViewModel(private val gate: CreateSessionGate) : ViewModel() {
+    private val _ui = MutableStateFlow(CreateSessionUi())
     val ui = _ui.asStateFlow()
 
     fun clearError() {
-        _ui.value = _ui.value.copy(error = null)
+        _ui.value = _ui.value.copy(error = null, confirmation = null)
     }
 
-    fun acknowledgeCreated(sessionId: String) = attempts.acknowledgeCreated(sessionId)
+    fun consumeResult() {
+        _ui.value = CreateSessionUi()
+    }
 
-    fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false) {
+    fun dismiss(attempt: CreateAttempt) {
+        clearError()
+        viewModelScope.launch { gate.dismiss(attempt) }
+    }
+
+    fun clear(attempt: CreateAttempt?) {
+        clearError()
+        if (attempt != null) viewModelScope.launch { gate.clear(attempt) }
+    }
+
+    fun submit(form: NewSessionDraft, createAsUserId: String?, retry: CreateAttempt? = null, draftVersion: String? = null) {
         val state = _ui.value
-        if (state.submitting || state.sessionId != null || state.uncertain != confirmedRetry) return
-        val prompt = form.prompt.trim()
-        if (prompt.isEmpty()) {
-            _ui.value = state.copy(error = "Tell Devin what to do")
-            return
-        }
-
+        if (state.submitting || state.sessionId != null) return
         _ui.value = CreateSessionUi(submitting = true)
         viewModelScope.launch {
-            if (!attempts.write(CreateAttempt.Pending, form)) {
-                _ui.value = state.copy(error = "Couldn't save the draft. The session was not started.")
-                return@launch
+            val request = form.toCreateRequest(createAsUserId)
+            val result = when {
+                retry != null -> gate.retryAnyway(retry)
+                request.prompt.isEmpty() -> CreateResult.Failed("Tell Devin what to do")
+                draftVersion != null -> gate.submit(request, form, draftVersion)
+                else -> gate.submit(request, form)
             }
-            val session = try {
-                createSession(
-                    CreateSessionRequest(
-                        prompt = prompt,
-                        title = form.title.trim().ifEmpty { null },
-                        tags = form.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
-                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 },
-                        playbookId = form.playbookId,
-                        repos = form.repos.ifEmpty { null },
-                        attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },
-                        createAsUserId = createAsUserId,
-                        devinMode = form.mode,
-                    ),
-                )
-            } catch (failure: Exception) {
-                if (failure is CancellationException) throw failure
-                val rejected = failure is ApiException && failure.code in 400..499 && failure.code != 408 && attempts.write(null)
-                _ui.value = CreateSessionUi(error = failure.message ?: "Couldn't start the session", uncertain = !rejected)
-                return@launch
+            _ui.value = when (result) {
+                is CreateResult.Open -> CreateSessionUi(sessionId = result.sessionId)
+                is CreateResult.NeedsConfirmation -> CreateSessionUi(confirmation = result.attempt)
+                is CreateResult.Failed -> CreateSessionUi(error = result.message)
+                CreateResult.Busy -> CreateSessionUi(error = "A session is already starting. Check Recents and try again.")
             }
-            attempts.write(CreateAttempt.Created(session.id), NewSessionDraft())
-            _ui.value = CreateSessionUi(sessionId = session.id)
         }
     }
 }
