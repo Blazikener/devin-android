@@ -4,6 +4,8 @@ import com.blazikener.devin.data.ApiException
 import com.blazikener.devin.data.DocumentTooLargeException
 import com.blazikener.devin.data.SessionAttachment
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -77,8 +79,9 @@ class ReaderRepository(private val source: ReaderSource, private val store: Read
                     ?: return ReaderResult(problem = ReaderProblem.Missing).also { store.remove(session, id) }
                 source.download(file)
             }
-            val text = decodeDocument(bytes)
-            val document = SavedDocument(file, text, documentVersion(bytes), now())
+            val document = withContext(Dispatchers.Default) {
+                SavedDocument(file, decodeDocument(bytes), documentVersion(bytes), now())
+            }
             store.write(session, document)
             return ReaderResult(file, document)
         } catch (cancel: CancellationException) {

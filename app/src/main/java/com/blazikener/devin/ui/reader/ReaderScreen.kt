@@ -80,7 +80,7 @@ private fun ReaderSurface(vm: ReaderViewModel, session: String, origin: SessionT
     val title = ui.result.file?.name ?: "Document"
     val focus = remember { FocusRequester() }
     LaunchedEffect(session) { context.graph.cache.session(session)?.let { sessionTitle = it.displayTitle } }
-    LaunchedEffect(Unit) { delay(350); focus.requestFocus() }
+    LaunchedEffect(title) { delay(350); focus.requestFocus() }
     val notice: (String) -> Unit = { scope.launch { snack.showSnackbar(it) }; Unit }
 
     fun external(share: Boolean) {

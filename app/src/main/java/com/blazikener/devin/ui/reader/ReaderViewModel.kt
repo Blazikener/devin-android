@@ -49,6 +49,7 @@ class ReaderViewModel(
             val files = graph.api.attachments(session)
             checkIdentity()
             graph.cache.putAttachments(session, files)
+            mutable.update { it.copy(result = it.result.copy(file = files.find { attachment -> attachment.id == id })) }
             return files
         }
         override suspend fun cachedIndex(session: String) = graph.cache.attachments(session)
@@ -88,6 +89,8 @@ class ReaderViewModel(
         request?.cancel()
         request = viewModelScope.launch {
             mutable.update { it.copy(loading = true) }
+            val hint = store.read(session, id)?.file ?: source.cachedIndex(session)?.find { it.id == id }
+            mutable.update { it.copy(result = it.result.copy(file = hint ?: it.result.file)) }
             val result = repository.load(session, id, mutable.value.online)
             ensureActive()
             checkIdentity()
