@@ -75,7 +75,9 @@ class MainActivity : ComponentActivity() {
                         is Launch.OpenSession -> Routes.session(l.id)
                         is Launch.NewSession -> Routes.create(l.prompt.orEmpty())
                     }
-                    nav.navigate(route) { launchSingleTop = true }
+                    // Destination identity alone is not session identity: singleTop would replace
+                    // Chat A with Chat B, or reuse an existing Create form and ignore shared text.
+                    nav.navigate(route)
                 }
                 NavHost(
                     nav, startDestination = start,
