@@ -17,6 +17,25 @@ import org.junit.Before
 import org.junit.Test
 
 class DevinApiTest {
+    @Test
+    fun createDoesNotReplayAfter408() = assertOneCreatePost(MockResponse().setResponseCode(408))
+
+    @Test
+    fun createDoesNotReplayAfter503EvenWithImmediateRetryAfter() =
+        assertOneCreatePost(MockResponse().setResponseCode(503).addHeader("Retry-After", "0"))
+
+    private fun assertOneCreatePost(response: MockResponse) = runBlocking {
+        server.enqueue(response)
+        server.enqueue(MockResponse().setBody("""{"session_id":"duplicate"}"""))
+
+        val failure = runCatching { api.createSession(CreateSessionRequest(prompt = "Create once")) }.exceptionOrNull()
+        assertEquals(response.status.split(' ')[1].toInt(), (failure as? ApiException)?.code)
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v3/organizations/org-1/sessions", request.path)
+        assertEquals("Create once", json.parseToJsonElement(request.body.readUtf8()).jsonObject["prompt"]?.jsonPrimitive?.content)
+    }
     private lateinit var server: MockWebServer
     private lateinit var api: DevinApi
 
