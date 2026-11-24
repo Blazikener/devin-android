@@ -279,6 +279,32 @@ class CreateSessionViewModelTest {
     }
 
     @Test
+    fun sharedPromptMatchingAnAttemptIsNotAppendedToAnUnrelatedDraft() = runTest {
+        val interrupted = CreateAttempt(createFingerprint(draft.prompt), 1)
+        attempts.write(listOf(interrupted))
+        val shared = gate { error("Unexpected new request") }
+        val editable = draft.copy(prompt = "Unrelated text")
+        val form = editable.withCreateArguments(draft.prompt, null, shared.attempts.value)
+
+        assertEquals(draft.prompt, form.prompt)
+        assertEquals(CreateResult.NeedsConfirmation(interrupted), shared.submit(form.toCreateRequest(null)))
+    }
+
+    @Test
+    fun unrelatedSharedPromptDoesNotAppendSubmittedOrIdenticalText() {
+        val interrupted = CreateAttempt(createFingerprint(draft.prompt), 1)
+        val incoming = "New shared text"
+        val form = draft.withCreateArguments(incoming, null, listOf(interrupted))
+
+        assertEquals(incoming, form.prompt)
+        assertEquals(form, form.withCreateArguments(incoming, null, listOf(interrupted)))
+        assertEquals(
+            "$incoming\n\nMore context",
+            form.withCreateArguments("More context", null, listOf(interrupted)).prompt,
+        )
+    }
+
+    @Test
     fun homeQuickSendAndCreateUseTheSameGuardAndClearIsScoped() = runTest {
         val interrupted = CreateAttempt(createFingerprint(draft.prompt), 1)
         val other = CreateAttempt(createFingerprint("An older prompt"), 0)

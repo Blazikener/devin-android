@@ -91,9 +91,7 @@ fun CreateScreen(
     val defaults = remember { NewSessionDraft(acu = settings.defaultAcuLimit?.toString() ?: "", mode = settings.defaultMode) }
     val formState = rememberSaveable(stateSaver = DraftSaver) {
         val draft = g.settings.newSessionDraft()
-        val alreadySubmitted = initialPrompt != null && draft.prompt.trim() == initialPrompt.trim() &&
-            g.createGate.attempts.value.any { it.matches(initialPrompt) }
-        mutableStateOf(draft.withCreateArguments(initialPrompt.takeUnless { alreadySubmitted }, modeOverride))
+        mutableStateOf(draft.withCreateArguments(initialPrompt, modeOverride, g.createGate.attempts.value))
     }
     var form by remember<MutableState<NewSessionDraft>>(formState) {
         object : MutableState<NewSessionDraft> by formState {
