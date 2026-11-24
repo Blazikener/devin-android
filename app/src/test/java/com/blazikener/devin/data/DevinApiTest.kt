@@ -178,6 +178,25 @@ class DevinApiTest {
     }
 
     @Test
+    fun exportStreamsLargeFilesAndRemovesIncompleteDestinations() = runBlocking {
+        val destination = java.io.File.createTempFile("reader-export", ".bin")
+        try {
+            val body = okio.Buffer()
+            repeat(17 * 1024) { body.write(ByteArray(1024) { 7 }) }
+            server.enqueue(MockResponse().setBody(body))
+            api.downloadTo(server.url("/large.bin").toString(), destination, 20 * 1024 * 1024)
+            assertEquals(17 * 1024 * 1024L, destination.length())
+            destination.inputStream().use { assertEquals(7, it.read()) }
+            assertEquals("Bearer cog_x", server.takeRequest().getHeader("Authorization"))
+
+            server.enqueue(MockResponse().setChunkedBody("too large", 2))
+            val failure = runCatching { api.downloadTo(server.url("/large.bin").toString(), destination, 5) }.exceptionOrNull()
+            assertTrue(failure is DocumentTooLargeException)
+            assertFalse("No partial export should be offered to another app", destination.exists())
+        } finally { destination.delete() }
+    }
+
+    @Test
     fun limitedDownloadKeepsSameOriginAuthButNeverSendsItToAnotherOrigin() = runBlocking {
         server.enqueue(MockResponse().setBody("text"))
         assertEquals("text", api.download(server.url("/report.md").toString(), 10).decodeToString())

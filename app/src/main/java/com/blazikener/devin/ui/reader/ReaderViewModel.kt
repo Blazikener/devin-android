@@ -121,16 +121,20 @@ class ReaderViewModel(
     suspend fun export(): File? {
         val file = mutable.value.result.file ?: return null
         mutable.update { it.copy(working = true) }
+        var downloaded: File? = null
         return try {
             checkIdentity()
-            val bytes = graph.api.download(file.url, 20 * 1024 * 1024)
-            checkIdentity()
-            withContext(Dispatchers.IO) {
+            val target = withContext(Dispatchers.IO) {
                 val exports = File(directory, "exports").apply { mkdirs() }
                 // Untrusted names cannot choose a path or overwrite other app data.
-                File(exports, File(file.name).name.ifBlank { "document" }).apply { writeBytes(bytes) }
+                File(exports, File(file.name).name.ifBlank { "document" })
             }
+            downloaded = target
+            graph.api.downloadTo(file.url, target, 20 * 1024 * 1024)
+            checkIdentity()
+            target
         } catch (cancel: CancellationException) {
+            downloaded?.delete()
             throw cancel
         } catch (failure: Exception) {
             val problem = if (failure is com.blazikener.devin.data.ApiException && failure.isAuth) ReaderProblem.Denied
