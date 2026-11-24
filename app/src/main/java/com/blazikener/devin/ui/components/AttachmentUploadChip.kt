@@ -27,7 +27,9 @@ internal fun AttachmentUploadChip(upload: AttachmentUpload, onRemove: () -> Unit
         onClick = onRemove,
         modifier = Modifier.widthIn(max = 300.dp).heightIn(min = 48.dp).semantics {
             contentDescription = "Remove ${upload.name}"
-            stateDescription = upload.error ?: if (upload.uploading) "Uploading" else "Ready"
+            // TalkBack inserts its own separator between state and action.
+            stateDescription = upload.error?.trimEnd { it.isWhitespace() || it == '.' }
+                ?: if (upload.uploading) "Uploading" else "Ready"
         },
         label = {
             // The action's description/state above already include this information.
