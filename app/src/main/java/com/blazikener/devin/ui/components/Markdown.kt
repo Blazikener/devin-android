@@ -148,33 +148,103 @@ object MarkdownParser {
     }.trim()
 
     private val inline = Regex(
-        """(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(?:!\[[^\]]*]|\[[^\]]+])\(|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
+        """\\[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]|(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|!?\[|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
     )
 
     private data class Destination(val url: String, val nextIndex: Int)
+    private data class InlineLink(val label: String, val destination: Destination)
 
     private fun Char.isAsciiPunctuation(): Boolean =
         this in '!'..'/' || this in ':'..'@' || this in '['..'`' || this in '{'..'~'
 
-    private fun parseDestination(text: String, start: Int): Destination? {
-        val url = StringBuilder()
-        var depth = 0
+    private fun String.isEscapeAt(index: Int): Boolean =
+        this[index] == '\\' && getOrNull(index + 1)?.isAsciiPunctuation() == true
+
+    private fun parseLink(text: String, start: Int, image: Boolean): InlineLink? {
+        if (!image && text.startsWith("![", start)) {
+            val inner = parseLink(text, start + 2, image = true) ?: return null
+            val end = inner.destination.nextIndex
+            if (!text.startsWith("](", end)) return null
+            val outer = parseDestination(text, end + 2) ?: return null
+            return InlineLink(inner.label, outer)
+        }
+
+        val label = StringBuilder()
         var i = start
         while (i < text.length) {
-            val c = text[i++]
             when {
-                c == '\\' && i < text.length && text[i].isAsciiPunctuation() -> {
-                    url.append(text[i++])
-                    continue
+                text.isEscapeAt(i) -> label.append(text[++i])
+                text[i] == '[' -> return null
+                text[i] == ']' -> {
+                    if (text.getOrNull(i + 1) != '(' || (!image && label.isEmpty())) return null
+                    val destination = parseDestination(text, i + 2) ?: return null
+                    val displayLabel = label.toString()
+                    return InlineLink(if (image && displayLabel.isBlank()) "Image" else displayLabel, destination)
                 }
-                c == '(' -> depth++
-                c == ')' -> {
-                    if (depth == 0) return if (url.isNotEmpty()) Destination(url.toString(), i) else null
-                    depth--
+                else -> label.append(text[i])
+            }
+            i++
+        }
+        return null
+    }
+
+    private fun parseDestination(text: String, start: Int): Destination? {
+        val url = StringBuilder()
+        val angle = text.getOrNull(start) == '<'
+        var depth = 0
+        var i = if (angle) start + 1 else start
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                text.isEscapeAt(i) -> url.append(text[++i])
+                angle && c == '>' -> {
+                    val end = destinationClose(text, i + 1) ?: return null
+                    return Destination(url.toString(), end)
+                }
+                angle -> {
+                    if (c == '<' || c == '\n' || c == '\r') return null
+                    url.append(c)
+                }
+                depth == 0 && (c == ')' || c.isWhitespace()) -> {
+                    if (url.isEmpty()) return null
+                    val end = destinationClose(text, i) ?: return null
+                    return Destination(url.toString(), end)
                 }
                 c.isWhitespace() -> return null
+                else -> {
+                    if (c == '(') depth++
+                    if (c == ')') depth--
+                    url.append(c)
+                }
             }
-            url.append(c)
+            i++
+        }
+        return null
+    }
+
+    private fun destinationClose(text: String, start: Int): Int? {
+        if (text.getOrNull(start) == ')') return start + 1
+        if (text.getOrNull(start)?.isWhitespace() != true) return null
+        var i = start
+        while (i < text.length && text[i].isWhitespace()) i++
+        if (text.getOrNull(i) == ')') return i + 1
+        val delimiter = when (val c = text.getOrNull(i)) {
+            '"', '\'' -> c
+            '(' -> ')'
+            else -> return null
+        }
+        i++
+        while (i < text.length) {
+            when {
+                text.isEscapeAt(i) -> i += 2
+                text[i] == delimiter -> {
+                    i++
+                    while (i < text.length && text[i].isWhitespace()) i++
+                    return (i + 1).takeIf { text.getOrNull(i) == ')' }
+                }
+                delimiter == ')' && text[i] == '(' -> return null
+                else -> i++
+            }
         }
         return null
     }
@@ -187,19 +257,19 @@ object MarkdownParser {
             val t = m.value
             last = m.range.last + 1
             when {
+                t.startsWith("\\") -> append(t[1])
                 t.startsWith("`") -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 13.sp)) { append(t.trim('`')) }
                 t.startsWith("**") || t.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("~~") -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("[") || t.startsWith("![") -> {
-                    val destination = parseDestination(text, last)
-                    if (destination == null) {
+                    val parsed = parseLink(text, last, image = t.startsWith("!"))
+                    if (parsed == null) {
                         append(t)
                     } else {
-                        val label = t.substring(t.indexOf('[') + 1, t.length - 2)
-                        withLink(LinkAnnotation.Url(destination.url, TextLinkStyles(SpanStyle(color = link)))) {
-                            append(if (t.startsWith("!") && label.isBlank()) "Image" else label)
+                        withLink(LinkAnnotation.Url(parsed.destination.url, TextLinkStyles(SpanStyle(color = link)))) {
+                            append(parsed.label)
                         }
-                        last = destination.nextIndex
+                        last = parsed.destination.nextIndex
                     }
                 }
                 t.startsWith("http") -> withLink(LinkAnnotation.Url(t, TextLinkStyles(SpanStyle(color = link)))) { append(t) }
