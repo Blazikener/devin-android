@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -239,7 +241,8 @@ fun SessionScreen(
                 Composer(input, { input = it }, settings.enterToSend, canSend,
                     hint = if (s?.state == SessionState.NeedsYou) "Reply to Devin…" else "Message Devin…",
                     onAttach = { picker.launch("*/*") }, onSend = ::send,
-                    maxHeight = if (typingCramped) 72.dp else 180.dp, attachFocus = attachFocus)
+                    maxHeight = if (typingCramped) 72.dp else 180.dp, attachFocus = attachFocus,
+                    compact = typingCramped)
             }
         }
     }
@@ -318,34 +321,62 @@ private fun WorkingIndicator() {
 @Composable
 fun Composer(value: String, onChange: (String) -> Unit, enterToSend: Boolean, canSend: Boolean, hint: String,
     onAttach: () -> Unit, onSend: () -> Unit, maxHeight: Dp = 180.dp, attachFocus: FocusRequester? = null,
+    compact: Boolean = false,
 ) {
-    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val fieldModifier = Modifier.testTag("composer").semantics { contentDescription = "Message" }
+        .onPreviewKeyEvent { e ->
+            if (enterToSend && e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed) {
+                if (canSend) onSend()
+                true
+            } else false
+        }
+    val options = KeyboardOptions(imeAction = if (enterToSend) ImeAction.Send else ImeAction.Default)
+    val actions = KeyboardActions(onSend = { if (canSend) onSend() })
+    val attach: @Composable () -> Unit = {
+        DevinIconButton("Attach context", Icons.Outlined.Add, onAttach,
+            modifier = if (attachFocus != null) Modifier.focusRequester(attachFocus) else Modifier)
+    }
+    val send: @Composable () -> Unit = {
+        FilledIconButton(onSend, Modifier.size(48.dp).testTag("send"), enabled = canSend) {
+            Icon(Icons.AutoMirrored.Outlined.Send, "Send message")
+        }
+    }
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 12.dp)) {
         DevinOutlinedSurface(Modifier.fillMaxWidth()) {
-            Column {
+            if (compact) {
+                // One row fits above a landscape IME. Avoid Material TextField's vertical
+                // decoration padding swallowing the editable line in this constrained space.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    attach()
+                    BasicTextField(value, onChange,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = maxHeight)
+                            .padding(horizontal = 8.dp, vertical = 4.dp).then(fieldModifier),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), maxLines = 2,
+                        keyboardOptions = options, keyboardActions = actions,
+                        decorationBox = { inner ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (value.isEmpty()) Text(hint, style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                inner()
+                            }
+                        })
+                    send()
+                }
+            } else Column {
                 OutlinedTextField(value, onChange, placeholder = { Text(hint) },
-                    // Measure the action row first; a tall draft must not push it behind the IME.
-                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth()
-                        .heightIn(min = 56.dp, max = maxHeight).testTag("composer")
-                        .semantics { contentDescription = "Message" }
-                        .onPreviewKeyEvent { e ->
-                            if (enterToSend && e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed) {
-                                if (canSend) onSend()
-                                true
-                            } else false
-                        },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = maxHeight).then(fieldModifier),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
                         unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent),
                     textStyle = MaterialTheme.typography.bodyLarge,
-                    keyboardOptions = KeyboardOptions(imeAction = if (enterToSend) ImeAction.Send else ImeAction.Default),
-                    keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }))
+                    keyboardOptions = options, keyboardActions = actions)
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    DevinIconButton("Attach context", Icons.Outlined.Add, onAttach,
-                        modifier = if (attachFocus != null) Modifier.focusRequester(attachFocus) else Modifier)
-                    FilledIconButton(onSend, Modifier.size(48.dp).testTag("send"), enabled = canSend) {
-                        Icon(Icons.AutoMirrored.Outlined.Send, "Send message")
-                    }
+                    attach()
+                    send()
                 }
             }
         }
