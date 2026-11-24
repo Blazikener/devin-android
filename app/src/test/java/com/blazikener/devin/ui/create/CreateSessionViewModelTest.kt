@@ -53,6 +53,22 @@ class CreateSessionViewModelTest {
         })[CreateSessionViewModel::class.java]
 
     @Test
+    fun blankAcuUsesConfiguredDefault() = runTest {
+        var request: CreateSessionRequest? = null
+        model { request = it; Session("default-acu") }.submit(draft, null, defaultAcuLimit = 20)
+        runCurrent()
+        assertEquals(20, request?.maxAcuLimit)
+    }
+
+    @Test
+    fun explicitAcuOverridesConfiguredDefault() = runTest {
+        var request: CreateSessionRequest? = null
+        model { request = it; Session("explicit-acu") }.submit(draft.copy(acu = "7"), null, defaultAcuLimit = 20)
+        runCurrent()
+        assertEquals(7, request?.maxAcuLimit)
+    }
+
+    @Test
     fun invalidAcuNeverTurnsIntoAnUnlimitedSession() = runTest {
         var requests = 0
         val vm = model(createSession = { requests++; Session("unexpected") })

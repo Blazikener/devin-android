@@ -49,7 +49,7 @@ internal class CreateSessionViewModel(
         }
     }
 
-    fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false) {
+    fun submit(form: NewSessionDraft, createAsUserId: String?, confirmedRetry: Boolean = false, defaultAcuLimit: Int? = null) {
         val state = _ui.value
         if (state.submitting || state.sessionId != null || state.uncertain != confirmedRetry) return
         if (attempts.isConsumed(form)) {
@@ -82,7 +82,7 @@ internal class CreateSessionViewModel(
                         prompt = prompt,
                         title = form.title.trim().ifEmpty { null },
                         tags = form.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct().ifEmpty { null },
-                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 },
+                        maxAcuLimit = form.acu.toIntOrNull()?.takeIf { it > 0 } ?: defaultAcuLimit?.takeIf { it > 0 },
                         playbookId = form.playbookId,
                         repos = form.repos.ifEmpty { null },
                         attachmentUrls = form.attachments.map { it.url }.ifEmpty { null },

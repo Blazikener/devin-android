@@ -183,7 +183,7 @@ fun CreateScreen(
                         onClick = {
                             if (attachmentVm.uploads.items.value.isEmpty()) {
                                 focus.clearFocus()
-                                vm.submit(form, settings.createAsUserId)
+                                vm.submit(form, settings.createAsUserId, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
                         enabled = !submission.uncertain && form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
@@ -225,7 +225,7 @@ fun CreateScreen(
                         onClick = {
                             if (attachmentVm.uploads.items.value.isEmpty()) {
                                 focus.clearFocus()
-                                vm.submit(form, settings.createAsUserId, confirmedRetry = true)
+                                vm.submit(form, settings.createAsUserId, confirmedRetry = true, defaultAcuLimit = settings.defaultAcuLimit)
                             }
                         },
                         enabled = form.prompt.isNotBlank() && uploads.isEmpty() && form.hasValidAcuLimit,
@@ -327,7 +327,7 @@ fun CreateScreen(
                     SetupPicker.Options -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         OutlinedTextField(form.acu, { update(form.copy(acu = it)) }, Modifier.fillMaxWidth(), label = { Text("ACU limit (optional)") },
                             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), isError = !form.hasValidAcuLimit,
-                            supportingText = { Text(if (form.hasValidAcuLimit) "Leave blank for the account default" else "Enter a whole number greater than 0") })
+                            supportingText = { Text(if (!form.hasValidAcuLimit) "Enter a whole number greater than 0" else if (settings.defaultAcuLimit != null) "Leave blank for your default (${settings.defaultAcuLimit})" else "Leave blank for the account default") })
                         OutlinedTextField(form.title, { update(form.copy(title = it)) }, Modifier.fillMaxWidth(), label = { Text("Title (optional)") }, singleLine = true)
                         OutlinedTextField(form.tags, { update(form.copy(tags = it)) }, Modifier.fillMaxWidth(), label = { Text("Tags (optional)") }, supportingText = { Text("Separate tags with commas") })
                     }
