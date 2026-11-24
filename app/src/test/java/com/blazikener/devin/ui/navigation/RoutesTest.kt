@@ -6,6 +6,12 @@ import org.junit.Test
 import java.net.URLDecoder
 
 class RoutesTest {
+    @Test fun recoveryRequestRoundTripsWithoutChangingLegacyShortcuts() {
+        val request = SessionsRequest(SessionFilter.All, recoverCreate = true)
+        assertEquals(request, SessionsRequest.decode(request.encode()))
+        assertEquals(SessionsRequest(SessionFilter.NeedsYou, true), SessionsRequest.decode("NeedsYou|true"))
+        assertNull(SessionsRequest.decode("All|false|invalid"))
+    }
     @Test fun explicitModeIsAnIndependentEncodedArgument() {
         assertEquals("create?prompt=task%26mode%3Dfast&mode=default", Routes.create("task&mode=fast", "default"))
         assertEquals("create?prompt=&mode=ultra", Routes.create(modeOverride = "ultra"))

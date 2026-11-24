@@ -25,6 +25,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
@@ -80,6 +81,7 @@ fun SessionsScreen(
     val listState = rememberLazyListState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(vm, initialFilter, initialSearch) {
@@ -90,8 +92,16 @@ fun SessionsScreen(
     }
     LaunchedEffect(navigationRequest) {
         navigationRequest?.let { request ->
-            request.filter?.let(vm::setFilter)
-            if (request.search) focusSearch = true
+            if (request.recoverCreate) {
+                vm.showAllForCreateRecovery()
+                focusSearch = false
+                focusManager.clearFocus()
+                keyboard?.hide()
+                listState.scrollToItem(0)
+            } else {
+                request.filter?.let(vm::setFilter)
+                if (request.search) focusSearch = true
+            }
             onNavigationRequestHandled()
         }
     }

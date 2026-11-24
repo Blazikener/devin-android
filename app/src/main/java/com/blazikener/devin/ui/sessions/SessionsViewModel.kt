@@ -137,6 +137,15 @@ internal class SessionsViewModel(
         _ui.update { it.copy(query = q) }
     }
 
+    /** A created-as user or a stale search must not hide a possibly accepted create request. */
+    fun showAllForCreateRecovery() {
+        savedState["mine"] = false
+        savedState["filter"] = SessionFilter.All.name
+        savedState["query"] = ""
+        _ui.update { it.copy(mineOnly = false, filter = SessionFilter.All, query = "") }
+        openFeed(_ui.value.key)
+    }
+
     fun toggleMine() {
         if (userId == null) return
         _ui.update { it.copy(mineOnly = !it.mineOnly) }

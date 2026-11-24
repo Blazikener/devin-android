@@ -79,6 +79,23 @@ class SessionsViewModelTest {
     }
 
     @Test
+    fun recoveryRemovesMineArchiveAndSearchThatCouldHideTheCreatedSession() = runTest {
+        val vm = model { _, _, isArchived, users ->
+            Page(if (isArchived) listOf(archived) else if (users != null) listOf(mine) else listOf(other, mine))
+        }
+        runCurrent()
+        vm.setFilter(SessionFilter.Archived)
+        vm.setQuery("old search")
+        runCurrent()
+        vm.showAllForCreateRecovery()
+        runCurrent()
+        assertFalse(vm.ui.value.mineOnly)
+        assertEquals(SessionFilter.All, vm.ui.value.filter)
+        assertEquals("", vm.ui.value.query)
+        assertTrue(vm.ui.value.visible.any { it.id == other.id })
+    }
+
+    @Test
     fun delayedAllResponseCannotReplaceMineOrItsCache() = runTest {
         val allResponse = CompletableDeferred<Page<Session>>()
         val vm = model { _, _, _, users ->

@@ -35,6 +35,17 @@ fun NavHostController.openCreateFromLaunch(prompt: String?) {
     navigate(Routes.create(prompt.orEmpty()))
 }
 
+/** Recovery is a root switch, not a new Sessions entry above the unresolved Create form. */
+fun NavHostController.showSessionsFromCreateRecovery() {
+    if (!popBackStack(Routes.Sessions, inclusive = false)) {
+        popBackStack(Routes.Home, inclusive = false)
+        showSessionsRoot()
+    }
+    currentBackStackEntry?.savedStateHandle?.set(
+        SessionNavigationState.SessionsRequest, SessionsRequest(filter = SessionFilter.All, recoverCreate = true).encode(),
+    )
+}
+
 fun NavHostController.clearProtectedNavigation() {
     clearBackStack(Routes.Sessions)
     navigate(Routes.Login) { popUpTo(graph.id) { inclusive = true } }
