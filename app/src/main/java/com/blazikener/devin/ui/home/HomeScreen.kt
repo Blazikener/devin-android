@@ -189,6 +189,7 @@ fun HomeScreen(
     fun send(retry: CreateAttempt? = null) {
         val trimmed = prompt.trim()
         if ((trimmed.isEmpty() && retry == null) || busy) return
+        val submittedFingerprint = retry?.fingerprint ?: createFingerprint(trimmed)
         posting = true
         error = null
         scope.launch {
@@ -208,7 +209,12 @@ fun HomeScreen(
             posting = false
             when (result) {
                 is CreateResult.Open -> {
-                    prompt = ""; modeChosen = false; confirmation = null
+                    if (createFingerprint(prompt) == submittedFingerprint) {
+                        prompt = ""
+                        modeChosen = false
+                        showModePicker = false
+                    }
+                    confirmation = null
                     onOpen(result.sessionId)
                     g.createGate.acknowledgeOpened(result.sessionId)
                 }

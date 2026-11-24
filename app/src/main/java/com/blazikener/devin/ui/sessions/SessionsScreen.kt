@@ -145,7 +145,7 @@ fun SessionsScreen(
                 searching = false
                 focus.clearFocus()
                 keyboard?.hide()
-                listState.scrollToItem(0)
+                listState.requestScrollToItem(0)
             } else {
                 request.filter?.let(vm::setFilter)
                 if (request.search) searching = true
