@@ -14,6 +14,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.blazikener.devin.data.Session
@@ -41,6 +43,9 @@ fun DevinRootShell(
     fun go(action: () -> Unit) { scope.launch { drawer.close(); action() } }
     BackHandler(drawer.isOpen) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(
+        // Signal a real pane re-entry when Back returns from a detail route. Without
+        // it TalkBack can retain focus on the removed screen instead of this root.
+        modifier = Modifier.semantics { paneTitle = selected.name },
         drawerState = drawer,
         drawerContent = {
             ModalDrawerSheet {
