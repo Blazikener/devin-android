@@ -92,6 +92,21 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun destinationsUnescapePunctuationWithoutChangingParenthesisDepth() {
+        val rendered = MarkdownParser.inline(
+            """[open](https://a.com/\(foo) ![close](https://a.com/foo\).png) [slash](https://a.com/\\(foo)\q\!)""",
+            Color.Unspecified,
+            Color.Unspecified,
+        )
+
+        assertEquals("open close slash", rendered.text)
+        assertEquals(
+            listOf("https://a.com/(foo", "https://a.com/foo).png", """https://a.com/\(foo)\q!"""),
+            rendered.getLinkAnnotations(0, rendered.length).map { (it.item as LinkAnnotation.Url).url },
+        )
+    }
+
+    @Test
     fun imagesUseAltTextAsClickableLabel() {
         val url = "https://example.com/chart_(final).png"
         val markdown = "See ![Final chart]($url) and ![]($url)."

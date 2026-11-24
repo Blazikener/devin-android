@@ -151,18 +151,30 @@ object MarkdownParser {
         """(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(?:!\[[^\]]*]|\[[^\]]+])\(|(https?://[^\s<>()]+[^\s<>().,;:!?'"])|(\*[^*\s][^*]*\*)|(~~[^~]+~~)"""
     )
 
-    private fun destinationEnd(text: String, start: Int): Int? {
+    private data class Destination(val url: String, val nextIndex: Int)
+
+    private fun Char.isAsciiPunctuation(): Boolean =
+        this in '!'..'/' || this in ':'..'@' || this in '['..'`' || this in '{'..'~'
+
+    private fun parseDestination(text: String, start: Int): Destination? {
+        val url = StringBuilder()
         var depth = 0
-        for (i in start until text.length) {
-            val c = text[i]
+        var i = start
+        while (i < text.length) {
+            val c = text[i++]
             when {
+                c == '\\' && i < text.length && text[i].isAsciiPunctuation() -> {
+                    url.append(text[i++])
+                    continue
+                }
                 c == '(' -> depth++
                 c == ')' -> {
-                    if (depth == 0) return i.takeIf { it > start }
+                    if (depth == 0) return if (url.isNotEmpty()) Destination(url.toString(), i) else null
                     depth--
                 }
                 c.isWhitespace() -> return null
             }
+            url.append(c)
         }
         return null
     }
@@ -179,16 +191,15 @@ object MarkdownParser {
                 t.startsWith("**") || t.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("~~") -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(inline(t.substring(2, t.length - 2), codeBg, link)) }
                 t.startsWith("[") || t.startsWith("![") -> {
-                    val end = destinationEnd(text, last)
-                    if (end == null) {
+                    val destination = parseDestination(text, last)
+                    if (destination == null) {
                         append(t)
                     } else {
                         val label = t.substring(t.indexOf('[') + 1, t.length - 2)
-                        val url = text.substring(last, end)
-                        withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = link)))) {
+                        withLink(LinkAnnotation.Url(destination.url, TextLinkStyles(SpanStyle(color = link)))) {
                             append(if (t.startsWith("!") && label.isBlank()) "Image" else label)
                         }
-                        last = end + 1
+                        last = destination.nextIndex
                     }
                 }
                 t.startsWith("http") -> withLink(LinkAnnotation.Url(t, TextLinkStyles(SpanStyle(color = link)))) { append(t) }
