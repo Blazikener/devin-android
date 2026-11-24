@@ -4,6 +4,15 @@ import com.blazikener.devin.data.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
+
+/** Each handoff has its own immutable path, including repeated exports of the same name. */
+internal fun newExportFile(directory: File, name: String): File {
+    val attempt = File(directory, "exports/${UUID.randomUUID()}")
+    check(attempt.mkdirs()) { "Cannot create export directory" }
+    val basename = File(name).name.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "document"
+    return File(attempt, basename)
+}
 
 /** Scoped to the current credential identity, inside Cache.clear()'s protected tree. */
 class DocumentStore(private val directory: File) : ReaderStore {

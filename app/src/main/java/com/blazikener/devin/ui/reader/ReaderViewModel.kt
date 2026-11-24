@@ -124,11 +124,7 @@ class ReaderViewModel(
         var downloaded: File? = null
         return try {
             checkIdentity()
-            val target = withContext(Dispatchers.IO) {
-                val exports = File(directory, "exports").apply { mkdirs() }
-                // Untrusted names cannot choose a path or overwrite other app data.
-                File(exports, File(file.name).name.ifBlank { "document" })
-            }
+            val target = withContext(Dispatchers.IO) { newExportFile(directory, file.name) }
             downloaded = target
             graph.api.downloadTo(file.url, target, 20 * 1024 * 1024)
             checkIdentity()
@@ -143,6 +139,8 @@ class ReaderViewModel(
             mutable.update { it.copy(result = ReaderResult(file, problem = problem)) }
             null
         } finally {
+            // Successful handoffs remain readable; remove only this attempt's empty directory.
+            downloaded?.parentFile?.delete()
             mutable.update { it.copy(working = false) }
         }
     }
